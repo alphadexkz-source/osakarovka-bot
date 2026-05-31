@@ -174,3 +174,7 @@ INSERT INTO settings (key, value) VALUES
   ('loyalty_every',       '10'),     -- каждая N-я поездка бесплатная
   ('loyalty_bonus',       '1')       -- сколько бесплатных поездок за N-ю поездку
 ON CONFLICT (key) DO NOTHING;
+-- Межгородские поля
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS pickup_address TEXT;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS scheduled_time TIMESTAMPTZ;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS is_intercity BOOLEAN DEFAULT false;
