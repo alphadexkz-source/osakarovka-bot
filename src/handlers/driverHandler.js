@@ -43,21 +43,21 @@ const handle = async (phone, msg, session) => {
           if (match(vlo, KW.FALSE))   { await orderEngine.falseCall(order2.id, phone); return; }
         }
       }
-      if (match(vlo, KW.ACCEPT)) { const p2 = await q.getPendingOrderForDriver(phone); if (p2) await orderEngine.accept(p2.id, phone); else await wa.sendText(phone, 'Net predlozheniya.'); return; }
-      if (match(vlo, KW.SKIP))   { await q.moveDriverToEndOfQueue(phone); await wa.sendText(phone, 'Propushcheno.'); return; }
+      if (match(vlo, KW.ACCEPT)) { const p2 = await q.getPendingOrderForDriver(phone); if (p2) await orderEngine.accept(p2.id, phone); else await wa.sendText(phone, 'Нет активного предложения.'); return; }
+      if (match(vlo, KW.SKIP))   { await q.moveDriverToEndOfQueue(phone); await wa.sendText(phone, 'Пропущено.'); return; }
       if (match(vlo, KW.ONLINE)) {
         await q.clearSession(phone);
         const r2 = await driverMgr.goOnline(phone);
-        if (r2.error === 'no_balance') { await wa.sendText(phone, 'Balans = 0. Popolnite cherez admina.'); return; }
+        if (r2.error === 'no_balance') { await wa.sendText(phone, 'Баланс = 0. Пополните через администратора.'); return; }
         const pos2 = await q.getDriverQueuePosition(phone);
         const cnt2 = (await q.getOnlineDriversQueue()).length;
-        await wa.sendText(phone, `Vy na linii! ${pos2}-y iz ${cnt2} voditeley.`);
+        await wa.sendText(phone, `Вы на линии! ${pos2}-й из ${cnt2} водителей.`);
         return;
       }
-      if (match(vlo, KW.OFFLINE)) { await driverMgr.goOffline(phone); await wa.sendText(phone, 'Ushli s linii. Otdyhayte!'); return; }
+      if (match(vlo, KW.OFFLINE)) { await driverMgr.goOffline(phone); await wa.sendText(phone, 'Ушли с линии. Otdyhayte!'); return; }
       if (match(vlo, KW.STATS))   { const stats2 = await q.getDriverTodayStats(driver2?.id); await notify.driverStats(phone, driver2, stats2); return; }
       const groqVoice = await getGroqDriverReply(voiceText, driver2?.full_name, null, { status: driver2?.status });
-      await wa.sendText(phone, groqVoice || `Vy skazali: "${voiceText}"\n\nKomandy: prinyat, pribyl, svoboden, lozhnyy, na liniyu, s linii, statistika`);
+      await wa.sendText(phone, groqVoice || `Вы сказали: "${voiceText}"\n\nKomandy: prinyat, pribyl, svoboden, lozhnyy, na liniyu, s linii, statistika`);
       return;
     }
 
@@ -66,13 +66,13 @@ const handle = async (phone, msg, session) => {
     if (state === 'cancel_reason') return await handleCancelReason(phone, text, session?.ctx || {});
     if (type === 'button' && buttonId) return await handleButton(phone, buttonId);
     if (state === 'driver_chat') {
-      if ((text||'').toLowerCase() === 'стоп') { await q.clearSession(phone); await wa.sendText(phone, 'Chat zavershyon.'); return; }
+      if ((text||'').toLowerCase() === 'стоп') { await q.clearSession(phone); await wa.sendText(phone, 'Чат завершён.'); return; }
       return chatRelay.fromDriver(phone, text);
     }
     if (state === 'driver_as_client') return handleAsClient(phone, msg, session);
 
     const driver = await q.getDriver(phone);
-    if (!driver) { await wa.sendText(phone, 'Voditel ne nayden.'); return; }
+    if (!driver) { await wa.sendText(phone, 'Водитель не найден.'); return; }
     const lo = (text||'').toLowerCase().trim();
 
     if (driver.status === 'busy') {
@@ -86,23 +86,23 @@ const handle = async (phone, msg, session) => {
       }
     }
 
-    if (match(lo, KW.ACCEPT)) { const pending = await q.getPendingOrderForDriver(phone); if (pending) await orderEngine.accept(pending.id, phone); else await wa.sendText(phone, 'Net aktivnogo predlozheniya.'); return; }
-    if (match(lo, KW.SKIP))   { await q.moveDriverToEndOfQueue(phone); await wa.sendText(phone, 'Propushcheno.'); return; }
+    if (match(lo, KW.ACCEPT)) { const pending = await q.getPendingOrderForDriver(phone); if (pending) await orderEngine.accept(pending.id, phone); else await wa.sendText(phone, 'Нет активного предложения.'); return; }
+    if (match(lo, KW.SKIP))   { await q.moveDriverToEndOfQueue(phone); await wa.sendText(phone, 'Пропущено.'); return; }
 
     if (match(lo, KW.ONLINE)) {
       await q.clearSession(phone);
       const r = await driverMgr.goOnline(phone);
-      if (r.error === 'no_balance') { await wa.sendText(phone, 'Balans = 0. Obratites k administratoru.'); return; }
-      if (r.error === 'in_trip')    { await wa.sendText(phone, 'Vy seychas v poezdke.'); return; }
+      if (r.error === 'no_balance') { await wa.sendText(phone, 'Баланс = 0. Обратитесь к администратору.'); return; }
+      if (r.error === 'in_trip')    { await wa.sendText(phone, 'Вы сейчас в поездке.'); return; }
       const pos = await q.getDriverQueuePosition(phone);
       const cnt = (await q.getOnlineDriversQueue()).length;
-      await wa.sendButtons(phone, `Na linii! Vy ${pos}-y iz ${cnt} voditeley.`, [{ id:'go_offline', text:'Uyti s linii' }]);
+      await wa.sendButtons(phone, `На линии! Вы ${pos}-й из ${cnt} водителей.`, [{ id:'go_offline', text:'Уйти с линии' }]);
       return;
     }
 
     if (match(lo, KW.OFFLINE)) {
       await driverMgr.goOffline(phone);
-      await wa.sendButtons(phone, 'Ushli s linii.', [{ id:'go_online', text:'Vyyti na liniyu' }, { id:'order_as_client', text:'Zakazat taksi' }]);
+      await wa.sendButtons(phone, 'Ушли с линии.', [{ id:'go_online', text:'Выйти на линию' }, { id:'order_as_client', text:'Заказать такси' }]);
       return;
     }
 
@@ -110,18 +110,18 @@ const handle = async (phone, msg, session) => {
 
     if (match(lo, KW.QUEUE)) {
       if (driver.status !== 'online') {
-        await wa.sendText(phone, 'Vy ne na linii. Napishite Na liniyu chtoby nachat.');
+        await wa.sendText(phone, 'Вы не на линии. Напишите "на линию" чтобы начать.');
       } else {
         const pos = await q.getDriverQueuePosition(phone);
         const online = await q.getOnlineDriversQueue();
-        await wa.sendText(phone, `Vasha pozitsiya: ${pos}-y iz ${online.length} voditeley onlayn.`);
+        await wa.sendText(phone, `Ваша позиция: ${pos}-й из ${online.length} водителей онлайн.`);
       }
       return;
     }
 
     if (match(lo, KW.EDIT)) { await wa.sendText(phone, 'Chto izmenit?\n\nimya, avto, foto, tsvet'); return; }
-    if (['имя','фио'].includes(lo))  { await q.setSession(phone, 'edit_name', {}); await wa.sendText(phone, 'Vvedite novoe FIO:'); return; }
-    if (['авто','номер'].includes(lo)) { await q.setSession(phone, 'edit_car', {}); await wa.sendText(phone, 'Vvedite marku i nomer:'); return; }
+    if (['имя','фио'].includes(lo))  { await q.setSession(phone, 'edit_name', {}); await wa.sendText(phone, 'Введите новое ФИО:'); return; }
+    if (['авто','номер'].includes(lo)) { await q.setSession(phone, 'edit_car', {}); await wa.sendText(phone, 'Введите марку и номер:'); return; }
     if (['фото'].includes(lo))        { await q.setSession(phone, 'edit_photo', {}); await wa.sendText(phone, 'Otpravte foto avtomobilya:'); return; }
     if (['цвет'].includes(lo))        { await q.setSession(phone, 'edit_color', {}); await wa.sendText(phone, 'Vvedite tsvet avtomobilya:'); return; }
 
@@ -135,7 +135,7 @@ const handle = async (phone, msg, session) => {
       await wa.sendText(phone, groqReply);
     } else {
       await wa.sendButtons(phone, 'Komandy:\nNa liniyu / S linii\nStatistika\nIzmenit dannye',
-        [driver.status === 'online' ? { id:'go_offline', text:'Uyti s linii' } : { id:'go_online', text:'Vyyti na liniyu' }]);
+        [driver.status === 'online' ? { id:'go_offline', text:'Уйти с линии' } : { id:'go_online', text:'Выйти на линию' }]);
     }
 
   } catch (err) {
@@ -150,9 +150,9 @@ const handleAsClient = async (phone, msg, session) => {
   const lo = (text||'').toLowerCase().trim();
   if (type === 'button') {
     if (buttonId === 'confirm_order') { if (!ctx.destination) return; await orderEngine.create(phone, ctx.destination, { price: ctx.price, tariff: ctx.tariff_id ? { id: ctx.tariff_id } : null }); return; }
-    if (buttonId === 'cancel_new')    { await q.clearSession(phone); await wa.sendText(phone, 'Otmeneno.'); return; }
-    if (buttonId === 'order_as_client') { await q.setSession(phone, 'driver_as_client', {}); await wa.sendText(phone, 'Kuda nuzhno ekhat?'); return; }
-    if (buttonId === 'cancel_order')  { const order = await q.getActiveOrderByClient(phone); if (order) await orderEngine.cancel(order.id, 'Otmenyon'); else { await q.clearSession(phone); await wa.sendText(phone, 'Net zakaza.'); } return; }
+    if (buttonId === 'cancel_new')    { await q.clearSession(phone); await wa.sendText(phone, 'Отменено.'); return; }
+    if (buttonId === 'order_as_client') { await q.setSession(phone, 'driver_as_client', {}); await wa.sendText(phone, 'Куда нужно ехать?'); return; }
+    if (buttonId === 'cancel_order')  { const order = await q.getActiveOrderByClient(phone); if (order) await orderEngine.cancel(order.id, 'Otmenyon'); else { await q.clearSession(phone); await wa.sendText(phone, 'Нет активного заказа.'); } return; }
     return;
   }
   if (!text || text.length < 2) return;
@@ -162,12 +162,12 @@ const handleAsClient = async (phone, msg, session) => {
     if (r.error === 'no_balance') { await wa.sendText(phone, 'Balans = 0.'); return; }
     const pos = await q.getDriverQueuePosition(phone);
     const cnt = (await q.getOnlineDriversQueue()).length;
-    await wa.sendButtons(phone, `Na linii! ${pos}-y iz ${cnt}.`, [{ id:'go_offline', text:'Uyti s linii' }]);
+    await wa.sendButtons(phone, `На линии! ${pos}-й из ${cnt}.`, [{ id:'go_offline', text:'Уйти с линии' }]);
     return;
   }
   if (ctx.confirming) {
     if (['да','ок','ok','yes','поехали','иә'].includes(lo)) { await orderEngine.create(phone, ctx.destination, { price: ctx.price, tariff: ctx.tariff_id ? { id: ctx.tariff_id } : null }); return; }
-    if (['нет','отмена','cancel','жоқ'].includes(lo))       { await q.clearSession(phone); await wa.sendText(phone, 'Otmeneno.'); return; }
+    if (['нет','отмена','cancel','жоқ'].includes(lo))       { await q.clearSession(phone); await wa.sendText(phone, 'Отменено.'); return; }
   }
   const active = await q.getActiveOrderByClient(phone);
   if (active) { await wa.sendText(phone, 'U vas est aktivnyy zakaz!'); return; }
@@ -178,26 +178,26 @@ const handleAsClient = async (phone, msg, session) => {
 };
 
 const handleButton = async (phone, buttonId) => {
-  if (buttonId === 'order_as_client') { await q.setSession(phone, 'driver_as_client', {}); await wa.sendText(phone, 'Kuda nuzhno ekhat?'); return; }
-  if (buttonId === 'go_online')  { await q.clearSession(phone); const r = await driverMgr.goOnline(phone); if (r.error === 'no_balance') { await wa.sendText(phone, 'Balans = 0.'); return; } const pos = await q.getDriverQueuePosition(phone); const cnt = (await q.getOnlineDriversQueue()).length; await wa.sendButtons(phone, `Na linii! ${pos}-y iz ${cnt}`, [{ id:'go_offline', text:'Uyti s linii' }]); return; }
-  if (buttonId === 'go_offline') { await driverMgr.goOffline(phone); await wa.sendButtons(phone, 'Ushli s linii.', [{ id:'go_online', text:'Vyyti na liniyu' }, { id:'order_as_client', text:'Zakazat taksi' }]); return; }
-  if (buttonId.startsWith('accept_')) { const r = await orderEngine.accept(parseInt(buttonId.replace('accept_', '')), phone); if (r?.error === 'already_taken') await wa.sendText(phone, 'Uzhe prinyat drugim.'); else if (r?.error) await wa.sendText(phone, 'Zakaz nedostupen.'); return; }
-  if (buttonId.startsWith('skip_'))    { await q.moveDriverToEndOfQueue(phone); await wa.sendText(phone, 'Propushcheno.'); return; }
+  if (buttonId === 'order_as_client') { await q.setSession(phone, 'driver_as_client', {}); await wa.sendText(phone, 'Куда нужно ехать?'); return; }
+  if (buttonId === 'go_online')  { await q.clearSession(phone); const r = await driverMgr.goOnline(phone); if (r.error === 'no_balance') { await wa.sendText(phone, 'Balans = 0.'); return; } const pos = await q.getDriverQueuePosition(phone); const cnt = (await q.getOnlineDriversQueue()).length; await wa.sendButtons(phone, `На линии! ${pos}-й из ${cnt}`, [{ id:'go_offline', text:'Уйти с линии' }]); return; }
+  if (buttonId === 'go_offline') { await driverMgr.goOffline(phone); await wa.sendButtons(phone, 'Ушли с линии.', [{ id:'go_online', text:'Выйти на линию' }, { id:'order_as_client', text:'Заказать такси' }]); return; }
+  if (buttonId.startsWith('accept_')) { const r = await orderEngine.accept(parseInt(buttonId.replace('accept_', '')), phone); if (r?.error === 'already_taken') await wa.sendText(phone, 'Уже принят другим водителем.'); else if (r?.error) await wa.sendText(phone, 'Заказ недоступен.'); return; }
+  if (buttonId.startsWith('skip_'))    { await q.moveDriverToEndOfQueue(phone); await wa.sendText(phone, 'Пропущено.'); return; }
   if (buttonId.startsWith('arrived_')) { await orderEngine.arrived(parseInt(buttonId.replace('arrived_', '')), phone); return; }
   if (buttonId.startsWith('false_'))   { await orderEngine.falseCall(parseInt(buttonId.replace('false_', '')), phone); return; }
   if (buttonId.startsWith('done_'))    { await orderEngine.complete(parseInt(buttonId.replace('done_', '')), phone); return; }
-  if (buttonId.startsWith('chat_'))    { await q.setSession(phone, 'driver_chat', { order_id: parseInt(buttonId.replace('chat_', '')) }); await wa.sendText(phone, 'Chat s klientom. Vyhod: stop'); return; }
-  if (buttonId === 'edit_name')  { await q.setSession(phone, 'edit_name', {}); await wa.sendText(phone, 'Vvedite novoe FIO:'); return; }
-  if (buttonId === 'edit_car')   { await q.setSession(phone, 'edit_car', {}); await wa.sendText(phone, 'Vvedite marku i nomer:'); return; }
-  if (buttonId === 'edit_photo') { await q.setSession(phone, 'edit_photo', {}); await wa.sendText(phone, 'Otpravte foto:'); return; }
+  if (buttonId.startsWith('chat_'))    { await q.setSession(phone, 'driver_chat', { order_id: parseInt(buttonId.replace('chat_', '')) }); await wa.sendText(phone, 'Чат с клиентом. Выход: стоп'); return; }
+  if (buttonId === 'edit_name')  { await q.setSession(phone, 'edit_name', {}); await wa.sendText(phone, 'Введите новое ФИО:'); return; }
+  if (buttonId === 'edit_car')   { await q.setSession(phone, 'edit_car', {}); await wa.sendText(phone, 'Введите марку и номер:'); return; }
+  if (buttonId === 'edit_photo') { await q.setSession(phone, 'edit_photo', {}); await wa.sendText(phone, 'Отправьте фото:'); return; }
 };
 
 const handleEdit = async (phone, msg, state) => {
   const { text, type, mediaUrl } = msg;
-  if (state === 'edit_name')  { if (!text || text.length < 2) { await wa.sendText(phone, 'Vvedite FIO:'); return; } await q.updateDriver(phone, { full_name: text.trim().slice(0, 100) }); await q.clearSession(phone); await wa.sendText(phone, 'Imya obnovleno: ' + text.trim()); return; }
-  if (state === 'edit_car')   { const parts = (text||'').split(',').map(s => s.trim()); if (parts.length < 2 || !parts[0] || !parts[1]) { await wa.sendText(phone, 'Format: Marka, Nomer'); return; } await q.updateDriver(phone, { car_make: parts[0].slice(0, 50), car_plate: parts[1].toUpperCase().slice(0, 20) }); await q.clearSession(phone); await wa.sendText(phone, 'Avto obnovleno!'); return; }
-  if (state === 'edit_photo') { if (type !== 'image' || !mediaUrl) { await wa.sendText(phone, 'Otpravte foto:'); return; } await q.updateDriver(phone, { car_photo_url: mediaUrl }); await q.clearSession(phone); await wa.sendText(phone, 'Foto obnovleno!'); return; }
-  if (state === 'edit_color') { if (!text || text.length < 2) { await wa.sendText(phone, 'Vvedite tsvet:'); return; } await q.updateDriver(phone, { car_color: text.trim().slice(0, 50) }); await q.clearSession(phone); await wa.sendText(phone, 'Tsvet obnovlyon: ' + text.trim()); return; }
+  if (state === 'edit_name')  { if (!text || text.length < 2) { await wa.sendText(phone, 'Введите ФИО:'); return; } await q.updateDriver(phone, { full_name: text.trim().slice(0, 100) }); await q.clearSession(phone); await wa.sendText(phone, 'Имя обновлено: ' + text.trim()); return; }
+  if (state === 'edit_car')   { const parts = (text||'').split(',').map(s => s.trim()); if (parts.length < 2 || !parts[0] || !parts[1]) { await wa.sendText(phone, 'Формат: Марка, Номер'); return; } await q.updateDriver(phone, { car_make: parts[0].slice(0, 50), car_plate: parts[1].toUpperCase().slice(0, 20) }); await q.clearSession(phone); await wa.sendText(phone, 'Авто обновлено!'); return; }
+  if (state === 'edit_photo') { if (type !== 'image' || !mediaUrl) { await wa.sendText(phone, 'Отправьте фото:'); return; } await q.updateDriver(phone, { car_photo_url: mediaUrl }); await q.clearSession(phone); await wa.sendText(phone, 'Фото обновлено!'); return; }
+  if (state === 'edit_color') { if (!text || text.length < 2) { await wa.sendText(phone, 'Введите цвет:'); return; } await q.updateDriver(phone, { car_color: text.trim().slice(0, 50) }); await q.clearSession(phone); await wa.sendText(phone, 'Цвет обновлён: ' + text.trim()); return; }
 };
 
 const handleCancelReason = async (phone, text, ctx) => {
@@ -209,33 +209,33 @@ const handleCancelReason = async (phone, text, ctx) => {
 const handleRegistration = async (phone, msg, state) => {
   const { text, type, mediaUrl } = msg;
   switch (state) {
-    case 'reg_name':  if (!text || text.length < 2) { await wa.sendText(phone, 'Vvedite FIO:'); return; } await q.updateDriver(phone, { full_name: text.trim().slice(0, 100) }); await q.setSession(phone, 'reg_photo', {}); await wa.sendText(phone, 'Imya: ' + text.trim() + '\n\nShag 2/5: Otpravte foto avtomobilya:'); break;
-    case 'reg_photo': if (type !== 'image' || !mediaUrl) { await wa.sendText(phone, 'Otpravte foto:'); return; } await q.updateDriver(phone, { car_photo_url: mediaUrl }); await q.setSession(phone, 'reg_make', {}); await wa.sendText(phone, 'Foto sohraneno!\n\nShag 3/5: Marka i model avto:'); break;
-    case 'reg_make':  if (!text || text.length < 2) { await wa.sendText(phone, 'Vvedite marku:'); return; } await q.updateDriver(phone, { car_make: text.trim().slice(0, 50) }); await q.setSession(phone, 'reg_plate', {}); await wa.sendText(phone, 'Marka: ' + text.trim() + '\n\nShag 4/5: Gos. nomer:'); break;
-    case 'reg_plate': if (!text || text.length < 2) { await wa.sendText(phone, 'Vvedite nomer:'); return; } await q.updateDriver(phone, { car_plate: text.trim().toUpperCase().slice(0, 20) }); await q.setSession(phone, 'reg_color', {}); await wa.sendText(phone, 'Nomer: ' + text.trim().toUpperCase() + '\n\nShag 5/5: Tsvet avto:'); break;
-    case 'reg_color': if (!text || text.length < 2) { await wa.sendText(phone, 'Vvedite tsvet:'); return; }
+    case 'reg_name':  if (!text || text.length < 2) { await wa.sendText(phone, 'Введите ФИО:'); return; } await q.updateDriver(phone, { full_name: text.trim().slice(0, 100) }); await q.setSession(phone, 'reg_photo', {}); await wa.sendText(phone, 'Имя: ' + text.trim() + '\n\nШаг 2/5: Отправьте фото автомобиля:'); break;
+    case 'reg_photo': if (type !== 'image' || !mediaUrl) { await wa.sendText(phone, 'Отправьте фото:'); return; } await q.updateDriver(phone, { car_photo_url: mediaUrl }); await q.setSession(phone, 'reg_make', {}); await wa.sendText(phone, 'Фото сохранено!\n\nШаг 3/5: Марка и модель авто:'); break;
+    case 'reg_make':  if (!text || text.length < 2) { await wa.sendText(phone, 'Введите марку:'); return; } await q.updateDriver(phone, { car_make: text.trim().slice(0, 50) }); await q.setSession(phone, 'reg_plate', {}); await wa.sendText(phone, 'Марка: ' + text.trim() + '\n\nШаг 4/5: Гос. номер:'); break;
+    case 'reg_plate': if (!text || text.length < 2) { await wa.sendText(phone, 'Vvedite nomer:'); return; } await q.updateDriver(phone, { car_plate: text.trim().toUpperCase().slice(0, 20) }); await q.setSession(phone, 'reg_color', {}); await wa.sendText(phone, 'Номер: ' + text.trim().toUpperCase() + '\n\nШаг 5/5: Цвет авто:'); break;
+    case 'reg_color': if (!text || text.length < 2) { await wa.sendText(phone, 'Введите цвет:'); return; }
       await q.updateDriver(phone, { car_color: text.trim().slice(0, 50) });
       await q.clearSession(phone);
       const d = await q.getDriver(phone);
       const weather = await getWeather().catch(() => null);
       const weatherStr = weather ? formatWeatherForGroq(weather) : '';
       await wa.sendText(phone,
-        'Dobro pozhalovat v eOsakarovka Servis!\n\n' +
-        'Voditel: ' + d.full_name + '\n' +
-        'Avto: ' + d.car_make + ', ' + d.car_color + '\n' +
-        'Nomer: ' + d.car_plate + '\n\n' +
+        'Добро пожаловать в еОсакаровка Сервис!\n\n' +
+        'Водитель: ' + d.full_name + '\n' +
+        'Авто: ' + d.car_make + ', ' + d.car_color + '\n' +
+        'Номер: ' + d.car_plate + '\n\n' +
         (weatherStr ? weatherStr + '\n\n' : '') +
-        'Instruktsiya:\n' +
-        'Na liniyu — nachat prinimat zakazy\n' +
-        'S linii — zakonchit rabotu\n' +
-        'Prinyat — prinyat zakaz\n' +
-        'Pribyl — priehali k klientu\n' +
-        'Svoboden — poezdka zavershena\n' +
-        'Lozhnyy — klienta net\n' +
-        'Statistika — vash zarabotok\n' +
-        'Ochered — vasha pozitsiya\n\n' +
-        'Vse komandy rabotayut golosom!\n\n' +
-        'Napishite Na liniyu chtoby nachat!'
+        'Инструкция:\n' +
+        'На линию — начать принимать заказы\n' +
+        'С линии — закончить работу\n' +
+        'Принял — принять заказ\n' +
+        'Прибыл — приехал к клиенту\n' +
+        'Свободен — поездка завершена\n' +
+        'Ложный — клиента нет на месте\n' +
+        'Статистика — ваш заработок\n' +
+        'Очередь — ваша позиция\n\n' +
+        'Все команды работают голосом!\n\n' +
+        'Напишите "на линию" чтобы начать!'
       );
       break;
   }
