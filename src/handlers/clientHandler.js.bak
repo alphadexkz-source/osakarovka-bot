@@ -1,0 +1,247 @@
+const wa          = require('../whatsapp/greenApi');
+const q           = require('../db/queries');
+const tariff      = require('../modules/tariffEngine');
+const orderEngine = require('../modules/orderEngine');
+const chatRelay   = require('../modules/chatRelay');
+const config      = require('../config');
+
+const handle = async (phone, name, msg, session) => {
+  const { text, type, buttonId } = msg;
+  const state = session?.state || 'idle';
+
+  try {
+    if (type === 'button' && buttonId) return await handleButton(phone, buttonId, session);
+    if (state === 'rating')     return await handleRating(phone, text, session?.ctx||{});
+    if (state === 'chat_mode') {
+      if (text?.toLowerCase() === 'стоп') {
+        const order = await q.getActiveOrderByClient(phone);
+        await q.setSession(phone, order ? 'in_trip' : 'idle', {});
+        await wa.sendText(phone, '↩️ Чат завершён.');
+        return;
+      }
+      return chatRelay.fromClient(phone, text);
+    }
+    if (state === 'waiting_driver') {
+      const lo = (text||'').toLowerCase();
+      if (['где', 'где водитель', 'едет', 'когда'].some(k => lo.includes(k))) {
+        const order = await q.getActiveOrderByClient(phone);
+        if (order) {
+          const mins = Math.floor((Date.now()-new Date(order.created_at))/60000);
+          await wa.sendText(phone, `🔍 Ищем водителя уже *${mins} мин*...\nКак только найдём — сразу сообщим!`);
+        }
+        return;
+      }
+      if (text) await wa.sendButtons(phone, '⏳ Ищем водителя...', [{ id:'cancel_order', text:'❌ Отменить заказ' }]);
+      return;
+    }
+    if (state === 'in_trip') {
+      if (text) await wa.sendButtons(phone, '🛣 Вы в поездке!', [{ id:'chat_driver', text:'💬 Написать водителю' }]);
+      return;
+    }
+
+    if (state === 'confirming') {
+      if (!text) return;
+      const lo = text.toLowerCase().trim();
+      if (['да', 'ok', 'ок', 'yes', 'подтверждаю', 'поехали', 'да поехали'].includes(lo)) {
+        const f = await q.getSession(phone);
+        if (!f || f.state !== 'confirming') return;
+        const { destination, price, tariff_id } = f.ctx;
+        await orderEngine.create(phone, destination, { price, tariff: tariff_id ? { id: tariff_id } : null });
+        return;
+      }
+      if (['нет', 'отмена', 'cancel', 'no', 'не надо', 'отменить'].includes(lo)) {
+        await q.clearSession(phone);
+        await wa.sendText(phone, '❌ Отменено. Напишите куда ехать. 🚖');
+        return;
+      }
+      const f = await q.getSession(phone);
+      if (f?.ctx?.destination) {
+        await wa.sendButtons(phone,
+          `🚖 *Подтвердите заказ:*\n\n📍 Куда: *${f.ctx.destination}*\n💰 Цена: *${f.ctx.price} тг*\n\nПодтвердить?`,
+          [{ id:'confirm_order', text:'✅ Да, поехали!' }, { id:'cancel_new', text:'❌ Отмена' }]
+        );
+      }
+      return;
+    }
+
+    if (state === 'enter_ref_code') {
+      return handleRefCode(phone, name, text);
+    }
+
+    const user  = await q.getUser(phone);
+    const today = new Date().toISOString().slice(0,10);
+    if (user && user.last_seen_date !== today) {
+      await q.updateUser(phone, { last_seen_date: today });
+      await wa.sendText(phone, `👋 Здравствуйте, *${user.name||name}*!\nДобро пожаловать в *еОсакаровка Сервис*! 🚖\n\nКуда нужно ехать?`);
+      if (!text||text.length<2) return;
+    }
+    const lo = (text||'').toLowerCase().trim();
+    if (['пригласить','реферал','мой код','invite','код'].includes(lo)) {
+      return showReferralInfo(phone);
+    }
+
+    return handleNewOrder(phone, name, text, type, user||await q.getUser(phone));
+
+  } catch (err) {
+    console.error('[clientHandler]', err.message);
+    await wa.sendText(phone, '❌ Произошла ошибка. Попробуйте ещё раз.').catch(()=>{});
+  }
+};
+
+const handleNewOrder = async (phone, name, text, type, user) => {
+  if (type === 'voice') {
+    await wa.sendText(phone, `🎤 Голосовое получено!\nПожалуйста, *напишите текстом* куда нужно ехать. 👇`);
+    return;
+  }
+  if (!text||text.length<2) return;
+  const active = await q.getActiveOrderByClient(phone);
+  if (active) {
+    await wa.sendText(phone, `⚠️ У вас уже есть активный заказ!\n📍 *${active.destination}*\n\nДождитесь завершения или отмените.`);
+    return;
+  }
+  const pi       = await tariff.getPrice(text);
+  const nightNote= pi.isNight ? ' 🌙 *ночной тариф*' : '';
+  const freeNote = user&&(user.trip_count+1)%config.FREE_TRIP_EVERY===0 ? '\n🎁 *Эта поездка будет БЕСПЛАТНОЙ!*' : '';
+  await wa.sendButtons(phone,
+    `🚖 *Ваш заказ:*\n\n📍 Куда: *${text}*\n💰 Цена: *${pi.price} тг*${nightNote}${freeNote}\n\nПодтвердить?`,
+    [{ id:'confirm_order', text:'✅ Да, поехали!' }, { id:'cancel_new', text:'❌ Отмена' }]
+  );
+  await q.setSession(phone, 'confirming', { destination:text, price:pi.price, tariff_id:pi.tariff?.id||null });
+};
+
+const handleButton = async (phone, buttonId, session) => {
+  if (buttonId === 'confirm_order') {
+    const f = await q.getSession(phone);
+    if (!f||f.state!=='confirming') return;
+    const {destination,price,tariff_id} = f.ctx;
+    await orderEngine.create(phone, destination, { price, tariff: tariff_id?{id:tariff_id}:null });
+    return;
+  }
+  if (buttonId === 'cancel_new') { await q.clearSession(phone); await wa.sendText(phone,'❌ Отменено. Напишите куда ехать. 🚖'); return; }
+  if (buttonId === 'cancel_order') {
+    const order = await q.getActiveOrderByClient(phone);
+    if (order) await orderEngine.cancel(order.id,'Отменён клиентом');
+    else { await q.clearSession(phone); await wa.sendText(phone,'❌ Нет активного заказа.'); }
+    return;
+  }
+  if (buttonId === 'chat_driver') {
+    const order = await q.getActiveOrderByClient(phone);
+    if (!order) { await wa.sendText(phone,'❌ Нет активного заказа.'); return; }
+    await q.setSession(phone, 'chat_mode', { prev_state:session?.state||'idle', order_id:order.id });
+    await wa.sendText(phone, `💬 *Чат с водителем активирован.*\nНапишите сообщение.\n\nДля выхода: *стоп*`);
+    return;
+  }
+  if (buttonId === 'skip_ref') {
+    await q.clearSession(phone);
+    await wa.sendText(phone, `✅ Хорошо! Куда едем? 🚖`);
+    return;
+  }
+  if (buttonId === 'copy_ref_code') {
+    const code = await q.getOrCreateReferralCode(phone);
+    await wa.sendText(phone, `📋 Ваш реферальный код:\n\n*${code}*\n\nОтправьте этот код другу.\nКогда он сделает первую поездку — вы получите бесплатную поездку! 🎁`);
+    return;
+  }
+  if (buttonId === 'enter_ref') {
+    await q.setSession(phone, 'enter_ref_code', {});
+    await wa.sendText(phone, `🎁 Введите *реферальный код* друга:\n\n(Код выглядит как КЛ1234 — 2 буквы и 4 цифры)\n\nЕсли кода нет — напишите *нет*`);
+    return;
+  }
+  if (buttonId === 'repeat_order') {
+    const f = await q.getSession(phone);
+    const dest = f?.ctx?.last_destination;
+    if (!dest) { await wa.sendText(phone,'❌ Предыдущий маршрут не найден.'); return; }
+    const user = await q.getUser(phone);
+    await q.clearSession(phone);
+    return handleNewOrder(phone, user?.name||'', dest, 'text', user);
+  }
+  if (buttonId?.startsWith('rate_')) {
+    const f = await q.getSession(phone);
+    return handleRating(phone, buttonId.replace('rate_',''), f?.ctx||{});
+  }
+};
+
+const handleRating = async (phone, input, ctx) => {
+  if (input === 'skip') {
+    await q.setSession(phone, 'idle', {});
+    await showRepeatOrBye(phone, ctx.last_destination);
+    return;
+  }
+  const score = parseInt(input);
+  if (score>=1&&score<=5&&ctx.order_id) {
+    const user = await q.getUser(phone);
+    if (ctx.driver_id) await q.updateDriverRating(ctx.driver_id, score);
+    if (user) await q.saveRating(ctx.order_id, user.id, ctx.driver_id, score);
+    await q.setSession(phone, 'idle', {});
+    await showRepeatOrBye(phone, ctx.last_destination);
+  }
+};
+
+const showRepeatOrBye = async (phone, lastDestination) => {
+  if (lastDestination) {
+    await wa.sendButtons(phone,
+      `🙏 Спасибо! Ждём вас снова!\n\nПоехать снова — *${lastDestination}*?`,
+      [{ id:'repeat_order', text:`🔁 Повторить` }, { id:'cancel_new', text:'📍 Другой маршрут' }]
+    );
+  } else {
+    await wa.sendText(phone, `🙏 Спасибо! До следующей поездки в *еОсакаровка Сервис*! 🚖`);
+  }
+};
+
+const showReferralInfo = async (phone) => {
+  const code  = await q.getOrCreateReferralCode(phone);
+  const stats = await q.getReferralStats(phone);
+  const bonus = await q.getBonusTrips(phone);
+  const invited   = parseInt(stats?.total     || 0);
+  const activated = parseInt(stats?.activated || 0);
+  await wa.sendButtons(phone,
+    `🎁 *Реферальная программа*\n\nВаш код: *${code}*\n\nПоделитесь кодом с другом:\n• Друг называет код при первом заказе\n• После его первой поездки *вы* получаете *1 бесплатную поездку*\n\n📊 *Ваша статистика:*\n👥 Приглашено: ${invited} | ✅ Активировано: ${activated}\n🎁 Бонусных поездок: *${bonus}*`,
+    [
+      { id: 'copy_ref_code', text: `📋 Мой код: ${code}` },
+      { id: 'enter_ref',     text: '🔑 Ввести код друга'  },
+    ]
+  );
+};
+
+const handleRefCode = async (phone, name, text) => {
+  const raw  = (text||'').trim();
+  const code = raw.toUpperCase();
+
+  if (['НЕТ', 'NO', 'НЕТУ', '-', '0'].includes(code)) {
+    await q.clearSession(phone);
+    await wa.sendText(phone, `✅ Понял! Код не нужен.\n\nКуда едем? 🚖`);
+    return;
+  }
+
+  const looksLikeCode = /^[А-ЯA-Z]{1,4}\d{2,6}$/i.test(code);
+  if (!looksLikeCode && raw.length >= 2) {
+    await q.clearSession(phone);
+    const user = await q.getUser(phone);
+    return handleNewOrder(phone, name, raw, 'text', user);
+  }
+
+  if (!code || code.length < 4) {
+    await wa.sendText(phone, `❌ Введите правильный код (например: КЛ1234)\n\nИли напишите *нет* если кода нет:`);
+    return;
+  }
+
+  const result = await q.applyReferralCode(phone, code);
+
+  if (result.error === 'not_found') {
+    await wa.sendText(phone, `❌ Код *${code}* не найден.\n\nПроверьте правильность или напишите *нет*:`);
+    return;
+  }
+  if (result.error === 'self_referral') {
+    await wa.sendText(phone, `❌ Нельзя использовать собственный код. 😄\n\nНапишите код друга или *нет*:`);
+    return;
+  }
+  if (result.error === 'already_referred') {
+    await q.clearSession(phone);
+    await wa.sendText(phone, `ℹ️ Реферальный код уже был применён ранее.\n\nКуда едем? 🚖`);
+    return;
+  }
+
+  await q.clearSession(phone);
+  await wa.sendText(phone, `✅ *Код принят!*\n\nПосле вашей первой поездки ваш друг получит *1 бесплатную поездку*! 🎁\n\nКуда едем? 🚖`);
+};
+
+module.exports = { handle };
