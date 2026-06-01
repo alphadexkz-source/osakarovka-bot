@@ -225,21 +225,21 @@ const handle = async (phone, name, msg, session) => {
       return;
     }
 
-    const user2 = await q.getUser(phone);
-    const today = new Date().toISOString().split('T')[0];
-    const lastSeen = user2?.last_seen_date ? String(user2.last_seen_date).split('T')[0] : null;
-    if (lastSeen !== today && (user2?.trip_count||0) >= 0) {
-      await q.updateUser(phone, { last_seen_date: new Date() }).catch(() => {});
-      const dayGreet = await dailyGreeting(name, text, user2?.trip_count||0).catch(() => null);
-      if (dayGreet) { await wa.sendText(phone, dayGreet); return; }
-    }
-
     const smartReply = getSmartReply(text);
     if (smartReply) { await wa.sendText(phone, smartReply); return; }
 
     const user = await q.getUser(phone);
     const addr = await isAddress(text);
     if (!addr) {
+      // Приветствие и Groq — только если не адрес, чтобы не дропать заказ
+      const user2 = await q.getUser(phone);
+      const today = new Date().toISOString().split('T')[0];
+      const lastSeen = user2?.last_seen_date ? String(user2.last_seen_date).split('T')[0] : null;
+      if (lastSeen !== today && (user2?.trip_count||0) >= 0) {
+        await q.updateUser(phone, { last_seen_date: new Date() }).catch(() => {});
+        const dayGreet = await dailyGreeting(name, text, user2?.trip_count||0).catch(() => null);
+        if (dayGreet) { await wa.sendText(phone, dayGreet); return; }
+      }
       const groqReply = await getGroqReply(text).catch(() => null);
       await wa.sendText(phone, groqReply || 'Напишите куда нужно ехать:');
       return;
