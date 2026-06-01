@@ -404,18 +404,21 @@ const handle = async (phone, name, msg, session) => {
       if (found.found) {
         const addrLine = found.address && found.address !== 'п. Осакаровка' ? '\n🏠 Адрес: *' + found.address + '*' : '';
         const catLine  = found.category ? '\n📂 ' + found.category : '';
+        const pi = await tariff.getPrice(found.name);
+        const dest = found.name + (found.address && found.address !== 'п. Осакаровка' ? ', ' + found.address : '');
         await wa.sendButtons(phone,
           '📍 *' + found.name + '*' + addrLine + catLine + '\n\nЗаказать такси туда?',
           [{ id:'order_found', text:'🚖 Да, везите туда!' }, { id:'cancel_new', text:'❌ Нет, спасибо' }]
         );
-        await q.setSession(phone, 'confirming', {
-          destination: found.name + (found.address && found.address !== 'п. Осакаровка' ? ', ' + found.address : ''),
-          price: (await tariff.getPrice(found.name)).price,
-          tariff_id: (await tariff.getPrice(found.name)).tariff?.id || null
-        });
+        await q.setSession(phone, 'confirming', { destination: dest, price: pi.price, tariff_id: pi.tariff?.id || null });
         return;
       }
-      // Объект не найден в базе — Groq ответит
+      // Объект не найден в базе — сообщаем и НЕ падаем в handleNewOrder
+      await wa.sendText(phone,
+        '🔍 *"' + objName + '"* не нашли в нашей базе.\n\n' +
+        'Попробуйте написать точнее или напишите адрес куда ехать — найдём водителя! 🚖'
+      );
+      return;
     }
 
     if (['есть такси','есть машина','такси есть','бар ма такси','такси бар ма','свободные водители'].some(w => lo.includes(w))) {
@@ -508,6 +511,10 @@ const handleButton = async (phone, buttonId, session) => {
     return;
   }
   if (buttonId === 'chat_driver') { const order = await q.getActiveOrderByClient(phone); if (!order) { await wa.sendText(phone,'❌ Нет активного заказа.'); return; } await q.setSession(phone,'chat_mode',{prev_state:session?.state||'idle',order_id:order.id}); await wa.sendText(phone,'💬 *Чат с водителем активирован.*\nНапишите сообщение — водитель его получит.\n\n✏️ Для выхода из чата напишите: *стоп*'); return; }
+  // ─── Кнопки водителя попавшие в clientHandler (offline) ──────
+  if (buttonId === 'order_as_client') { await q.setSession(phone,'driver_as_client',{}); await wa.sendText(phone,'🚖 Куда нужно ехать?'); return; }
+  if (buttonId === 'go_online')  { const driverMgr = require('../modules/driverManager'); const r = await driverMgr.goOnline(phone); if (r.error === 'no_balance') { await wa.sendText(phone,'🔴 Баланс = 0. Обратитесь к администратору.'); return; } const pos = await q.getDriverQueuePosition(phone); const cnt = (await q.getOnlineDriversQueue()).length; await wa.sendButtons(phone,'🟢 *Вы на линии!*\n📋 Позиция: *'+pos+'-й* из *'+cnt+'*. Ожидайте заказы!',[{id:'go_offline',text:'⚫ Уйти с линии'}]); return; }
+  if (buttonId === 'go_offline') { const driverMgr = require('../modules/driverManager'); await driverMgr.goOffline(phone); await wa.sendButtons(phone,'⚫ *Вы ушли с линии.*\n\nОтдыхайте!',[{id:'go_online',text:'🟢 Выйти на линию'},{id:'order_as_client',text:'🚖 Заказать такси'}]); return; }
 };
 
 module.exports = { handle };

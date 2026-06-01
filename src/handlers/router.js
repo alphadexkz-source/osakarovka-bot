@@ -98,6 +98,10 @@ const route = async (body) => {
       if (session?.state?.startsWith('reg_') ||
           session?.state?.startsWith('edit_') ||
           driverOnlyStates.includes(session?.state)) return driverHandler.handle(phone, msg, session);
+      // FIX: кнопки водителя при offline — в driverHandler
+      const driverButtonPfx = ['go_online','go_offline','accept_','skip_','arrived_','done_','false_','chat_','cancel_driver_','driver_cancel_'];
+      if (msg.type === 'button' && msg.buttonId && driverButtonPfx.some(p => msg.buttonId.startsWith(p)))
+        return driverHandler.handle(phone, msg, session);
       if (GO_ONLINE.some(w => lo.includes(w))) return driverHandler.handle(phone, msg, session);
       return clientHandler.handle(phone, name, msg, session);
     }
