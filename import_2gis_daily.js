@@ -144,7 +144,7 @@ async function main() {
      `q=${encodeURIComponent(cat)}` +
      `&point=${LON},${LAT}` +
      `&radius=${RADIUS}` +
-     `&fields=items.point,items.address,items.rubrics,items.address_name` +
+     `&fields=items.point,items.address,items.rubrics,items.address_name,items.full_address_name` +
      `&page_size=10&page=${page}` +
      `&key=${DGIS_API_KEY}`;
 
