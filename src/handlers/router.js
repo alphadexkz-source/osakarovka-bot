@@ -6,11 +6,9 @@ const adminHandler = require('./adminHandler');
 const config = require('../config');
 const { newClientGreeting } = require('../modules/greetingService');
 
-const GO_ONLINE_WORDS  = ['на линию','на линии','выхожу','начинаю','работаю','онлайн','старт','начать','лайн','жұмыс','жұмысқа','линияға шығам','шығамын'];
-const GO_OFFLINE_WORDS = ['с линии','ухожу','офлайн','оффлайн','стоп','отдых','линиядан','аяқтадым','заканчиваю'];
+const GO_ONLINE = ['на линию','на линии','выхожу','начинаю','работаю','онлайн','старт','начать','лайн','жұмыс','жұмысқа','линияға шығам','шығамын'];
 
 const parse = (body) => {
-  console.log('[WEBHOOK TYPE]', body.typeWebhook, body.senderData?.sender);
   if (body.typeWebhook !== 'incomingMessageReceived') return null;
   const { senderData, messageData } = body;
   if (!senderData?.sender || !messageData) return null;
@@ -19,28 +17,12 @@ const parse = (body) => {
   const name = String(senderData.senderName || 'Пользователь').slice(0, 100);
   let type = 'text', text = '', buttonId = null, mediaUrl = null;
   switch (messageData.typeMessage) {
-    case 'textMessage':
-      text = String(messageData.textMessageData?.textMessage || '');
-      type = 'text'; break;
-    case 'buttonsResponseMessage':
-      buttonId = String(messageData.buttonsResponseMessage?.selectedButtonId || '');
-      text = String(messageData.buttonsResponseMessage?.selectedButtonDisplayText || '');
-      type = 'button'; break;
-    case 'listResponseMessage':
-      buttonId = String(messageData.listResponseMessage?.listResponseRowId || '');
-      text = String(messageData.listResponseMessage?.title || '');
-      type = 'button'; break;
-    case 'audioMessage':
-    case 'pttMessage':
-      mediaUrl = messageData.fileMessageData?.downloadUrl;
-      type = 'voice'; break;
-    case 'imageMessage':
-      mediaUrl = messageData.fileMessageData?.downloadUrl;
-      text = String(messageData.fileMessageData?.caption || '');
-      type = 'image'; break;
-    default:
-      text = String(messageData.textMessageData?.textMessage || '');
-      type = 'other';
+    case 'textMessage': text = String(messageData.textMessageData?.textMessage || ''); type = 'text'; break;
+    case 'buttonsResponseMessage': buttonId = String(messageData.buttonsResponseMessage?.selectedButtonId || ''); text = String(messageData.buttonsResponseMessage?.selectedButtonDisplayText || ''); type = 'button'; break;
+    case 'listResponseMessage': buttonId = String(messageData.listResponseMessage?.listResponseRowId || ''); text = String(messageData.listResponseMessage?.title || ''); type = 'button'; break;
+    case 'audioMessage': case 'pttMessage': mediaUrl = messageData.fileMessageData?.downloadUrl; type = 'voice'; break;
+    case 'imageMessage': mediaUrl = messageData.fileMessageData?.downloadUrl; text = String(messageData.fileMessageData?.caption || ''); type = 'image'; break;
+    default: text = String(messageData.textMessageData?.textMessage || ''); type = 'other';
   }
   return { phone, name, type, text: text.trim().slice(0, 500), buttonId, mediaUrl };
 };
@@ -69,8 +51,9 @@ const route = async (body) => {
     // ВЫХОД ИЗ АДМИНКИ
     if (session?.state === 'admin_exit') {
       await q.clearSession(phone);
-      if (GO_ONLINE_WORDS.some(w => lo.includes(w))) {
-        return driverHandler.handle(phone, msg, { state: 'idle', ctx: {} });
+      if (GO_ONLINE.some(w => lo.includes(w))) {
+        const driver = await q.getDriver(phone);
+        if (driver) return driverHandler.handle(phone, msg, { state: 'idle', ctx: {} });
       }
       return clientHandler.handle(phone, name, msg, { state: 'idle', ctx: {} });
     }
@@ -87,60 +70,50 @@ const route = async (body) => {
         await q.createDriver(updated.id).catch(() => {});
       }
       await q.setSession(phone, 'reg_name', {});
-      await wa.sendText(phone, `✅ Код принят!\n\n📝 Регистрация водителя (5 шагов)\n\nШаг 1/5: Введите ваше *полное имя* (ФИО):`);
+      await wa.sendText(phone, 'Код принят! Добро пожаловать!\n\nРегистрация водителя (5 шагов)\n\nШаг 1/5: Введите ваше полное имя (ФИО):');
       return;
     }
 
-    if (role === 'new' || !user) return handleNew(phone, name, msg);
+    // НОВЫЙ ПОЛЬЗОВАТЕЛЬ — только одно приветствие
+    if (role === 'new' || !user) {
+      await q.createUser(phone, name, 'client');
+      await q.setSession(phone, 'idle', {});
+      // Умное приветствие через Groq — ТОЛЬКО ОДНО сообщение
+      const greeting = await newClientGreeting(name, text).catch(() => null);
+      await wa.sendText(phone, greeting ||
+        'Добро пожаловать в еОсакаровка Сервис!\n\nНапишите куда нужно ехать — найдём водителя.\nКаждая 10-я поездка бесплатная!'
+      );
+      // Если написал адрес сразу — обрабатываем
+      const freshSession = await q.getSession(phone);
+      return clientHandler.handle(phone, name, msg, freshSession || { state: 'idle', ctx: {} });
+    }
 
     // ВОДИТЕЛЬ
     if (role === 'driver') {
+      await q.updateDriverActivity(phone).catch(() => {});
       const driver = await q.getDriver(phone);
       const status = driver?.status || 'offline';
-
-      // Онлайн или занят → ВСЕГДА водитель
-      if (status === 'online' || status === 'busy') {
-        if (user?.role === 'driver' || user?.role === 'admin') {
-          await q.updateDriverActivity(phone).catch(() => {});
-        }
-        return driverHandler.handle(phone, msg, session);
-      }
-
-      // Регистрация/редактирование → водитель
-      if (session?.state?.startsWith('reg_') || session?.state?.startsWith('edit_') || session?.state === 'driver_chat') {
-        return driverHandler.handle(phone, msg, session);
-      }
-
-      // Пишет "на линию" → водитель
-      if (GO_ONLINE_WORDS.some(w => lo.includes(w))) {
-        return driverHandler.handle(phone, msg, session);
-      }
-
+      // Онлайн/занят → водитель
+      if (status === 'online' || status === 'busy') return driverHandler.handle(phone, msg, session);
+      // В процессе регистрации → водитель
+      if (session?.state?.startsWith('reg_') || session?.state?.startsWith('edit_') || session?.state === 'driver_chat') return driverHandler.handle(phone, msg, session);
+      // Говорит "на линию" → водитель
+      if (GO_ONLINE.some(w => lo.includes(w))) return driverHandler.handle(phone, msg, session);
       // Офлайн → клиент
       return clientHandler.handle(phone, name, msg, session);
     }
 
     // АДМИН
     if (role === 'admin') {
-      // Проверяем есть ли запись водителя и его статус
+      await q.updateDriverActivity(phone).catch(() => {});
       const driver = await q.getDriver(phone);
-      const driverStatus = driver?.status || 'offline';
-
-      // Если онлайн → водительский режим
-      if (driverStatus === 'online' || driverStatus === 'busy') {
-        await q.updateDriverActivity(phone).catch(() => {});
-        return driverHandler.handle(phone, msg, session);
-      }
-
-      // Пишет "на линию" → водитель
-      if (GO_ONLINE_WORDS.some(w => lo.includes(w)) && driver) {
-        return driverHandler.handle(phone, msg, session);
-      }
-
-      // Иначе → клиент
+      const status = driver?.status || 'offline';
+      if (status === 'online' || status === 'busy') return driverHandler.handle(phone, msg, session);
+      if (GO_ONLINE.some(w => lo.includes(w)) && driver) return driverHandler.handle(phone, msg, session);
       return clientHandler.handle(phone, name, msg, session);
     }
 
+    // КЛИЕНТ
     return clientHandler.handle(phone, name, msg, session);
 
   } catch (err) {
@@ -148,20 +121,4 @@ const route = async (body) => {
   }
 };
 
-const handleNew = async (phone, name, msg) => {
-  try {
-    await q.createUser(phone, name, 'client');
-    await q.setSession(phone, 'idle', {});
-    const greeting = await newClientGreeting(name, msg.text || '').catch(() => null);
-    await wa.sendText(phone, greeting ||
-      `👋 Сәлем, *${name}*!\nБұл *еОсакаровка Сервис* 😊\n\n🚖 Напишите куда ехать — найдём водителя!\nМекенжайды жазыңыз — жүргізуші табамыз!`
-    );
-    // Новому клиенту уже отправили приветствие — не вызываем handle снова
-    // чтобы не было двойного ответа
-  } catch (err) {
-    console.error('[handleNew]', err.message);
-  }
-};
-
 module.exports = { route };
-
