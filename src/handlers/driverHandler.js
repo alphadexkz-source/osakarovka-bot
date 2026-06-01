@@ -83,7 +83,7 @@ const handle = async (phone, msg, session) => {
         if (match(lo, KW.ARRIVED)) { await orderEngine.arrived(order.id, phone); return; }
         if (match(lo, KW.DONE))    { await orderEngine.complete(order.id, phone); return; }
         if (match(lo, KW.FALSE))   { await orderEngine.falseCall(order.id, phone); return; }
-        await wa.sendText(phone, 'Вы в поездке.\n\nприбыл - приехали к клиенту\nсвободен - довезли клиента\nложный - клиента нет на месте');
+        await wa.sendText(phone, '🚗 *Вы в поездке.*\n\n📍 *прибыл* — приехали к клиенту\n✅ *свободен* — довезли клиента\n🚫 *ложный* — клиента нет на месте');
         return;
       }
     }
@@ -94,17 +94,17 @@ const handle = async (phone, msg, session) => {
     if (match(lo, KW.ONLINE)) {
       await q.clearSession(phone);
       const r = await driverMgr.goOnline(phone);
-      if (r.error === 'no_balance') { await wa.sendText(phone, 'Баланс = 0. Обратитесь к администратору.'); return; }
-      if (r.error === 'in_trip')    { await wa.sendText(phone, 'Вы сейчас в поездке.'); return; }
+      if (r.error === 'no_balance') { await wa.sendText(phone, '🔴 Баланс = 0.\nОбратитесь к администратору для пополнения.'); return; }
+      if (r.error === 'in_trip')    { await wa.sendText(phone, '🚗 Вы сейчас в поездке.'); return; }
       const pos = await q.getDriverQueuePosition(phone);
       const cnt = (await q.getOnlineDriversQueue()).length;
-      await wa.sendButtons(phone, 'Вы на линии!\nВы ' + pos + '-й из ' + cnt + ' водителей.', [{ id:'go_offline', text:'Уйти с линии' }]);
+      await wa.sendButtons(phone, '🟢 *Вы на линии!*\n📋 Позиция: *' + pos + '-й* из *' + cnt + '* водителей.\n\nОжидайте заказы!', [{ id:'go_offline', text:'⚫ Уйти с линии' }]);
       return;
     }
 
     if (match(lo, KW.OFFLINE)) {
       await driverMgr.goOffline(phone);
-      await wa.sendButtons(phone, 'Вы ушли с линии.', [{ id:'go_online', text:'Выйти на линию' }, { id:'order_as_client', text:'Заказать такси' }]);
+      await wa.sendButtons(phone, '⚫ *Вы ушли с линии.*\n\nОтдыхайте! Когда будете готовы — возвращайтесь.', [{ id:'go_online', text:'🟢 Выйти на линию' }, { id:'order_as_client', text:'🚖 Заказать такси' }]);
       return;
     }
 
@@ -112,11 +112,11 @@ const handle = async (phone, msg, session) => {
 
     if (match(lo, KW.QUEUE)) {
       if (driver.status !== 'online') {
-        await wa.sendText(phone, 'Вы не на линии. Напишите "на линию" чтобы начать.');
+        await wa.sendText(phone, '⚫ Вы не на линии.\nНапишите *"на линию"* чтобы начать работу.');
       } else {
         const pos = await q.getDriverQueuePosition(phone);
         const online = await q.getOnlineDriversQueue();
-        await wa.sendText(phone, 'Ваша позиция: ' + pos + '-й из ' + online.length + ' водителей онлайн.');
+        await wa.sendText(phone, '📋 *Ваша позиция в очереди:*\n\n🔢 *' + pos + '-й* из *' + online.length + '* водителей онлайн.');
       }
       return;
     }
@@ -146,8 +146,8 @@ const handle = async (phone, msg, session) => {
       await wa.sendText(phone, groqReply);
     } else {
       await wa.sendButtons(phone,
-        'Команды:\nНа линию / С линии\nСтатистика\nОчередь\nИзменить данные',
-        [driver.status === 'online' ? { id:'go_offline', text:'Уйти с линии' } : { id:'go_online', text:'Выйти на линию' }]
+        '📋 *Команды:*\n\n🟢 *на линию* — начать работу\n⚫ *с линии* — завершить\n📊 *статистика* — заработок\n🔢 *очередь* — моя позиция\n✏️ *изменить* — обновить данные',
+        [driver.status === 'online' ? { id:'go_offline', text:'⚫ Уйти с линии' } : { id:'go_online', text:'🟢 Выйти на линию' }]
       );
     }
 

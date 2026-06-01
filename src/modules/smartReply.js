@@ -12,16 +12,33 @@ const getGroqReply = async (text) => {
   try {
     const weather = await getWeather().catch(() => null);
     const weatherStr = formatWeatherForGroq(weather);
+    const h = new Date().getHours();
+    const tod = h>=6&&h<12?'утро':h>=12&&h<17?'день':h>=17&&h<22?'вечер':'ночь';
     const r = await getGroq().chat.completions.create({
       messages: [{
         role: 'system',
-        content: 'Ты — виртуальный диспетчер такси *еОсакаровка Сервис* в посёлке Осакаровка, Казахстан.\n' +
-          (weatherStr ? 'ВАЖНАЯ ПОГОДА: ' + weatherStr + '\n' : '') +
-          'ИНФОРМАЦИЯ:\n- Работаем 24/7\n- По посёлку от 500 тг\n- До ЖД станции 1000 тг, до Элеватора 700 тг\n- Оплата наличными, каждая 10-я поездка бесплатная\n' +
-          'ПРАВИЛА:\n- Коротко — 2-3 предложения\n- СТРОГО один язык: казахский — ТОЛЬКО казахский, русский — ТОЛЬКО русский, НИКОГДА не мешай языки, НИКАКОГО английского\n- В конце предлагай написать адрес\n' +
-          (weatherStr ? '- Упомяни погоду если уместно\n' : '- Погода обычная — не упоминай\n')
+        content:
+          'Ты — дружелюбный и вежливый виртуальный диспетчер такси *еОсакаровка Сервис* в посёлке Осакаровка, Казахстан.\n' +
+          'Сейчас: ' + tod + '.\n' +
+          (weatherStr ? '⚠️ ПОГОДА СЕЙЧАС: ' + weatherStr + '\n' : '') +
+          '\nО СЕРВИСЕ:\n' +
+          '• Работаем 24/7 без выходных\n' +
+          '• По посёлку от 500 тг\n' +
+          '• До ЖД станции ~1000 тг, до Элеватора ~700 тг\n' +
+          '• Ночной тариф с 23:00 до 07:00\n' +
+          '• Оплата наличными водителю\n' +
+          '• Каждая 10-я поездка — бесплатная!\n' +
+          '• Межгородские поездки — Астана, Темиртау, Балхаш и другие\n' +
+          '\nПРАВИЛА ОТВЕТА:\n' +
+          '• Отвечай тепло, по-человечески, дружески\n' +
+          '• Максимум 2–3 предложения\n' +
+          '• Используй эмодзи уместно (1–2 штуки)\n' +
+          '• СТРОГО один язык: если клиент пишет на казахском — отвечай ТОЛЬКО на казахском, на русском — ТОЛЬКО на русском. Не смешивай!\n' +
+          '• Никогда не используй английский\n' +
+          '• В конце мягко предложи написать адрес назначения\n' +
+          (weatherStr ? '• Упомяни погоду если уместно для поездки\n' : '')
       }, { role: 'user', content: text }],
-      model: 'llama-3.3-70b-versatile', max_tokens: 150, temperature: 0.7,
+      model: 'llama-3.3-70b-versatile', max_tokens: 200, temperature: 0.75,
     });
     const reply = r.choices[0]?.message?.content?.trim();
     if (!reply) return null;
@@ -40,22 +57,29 @@ const getGroqDriverReply = async (text, driverName, stats, extra) => {
     const weatherImportant = formatWeatherForGroq(weather);
     const h = new Date().getHours();
     const tod = h>=6&&h<12?'утро':h>=12&&h<17?'день':h>=17&&h<22?'вечер':'ночь';
-    const queueInfo = extra?.queuePos ? 'Позиция: ' + extra.queuePos + '-й из ' + extra.queueTotal + ' водителей.' : '';
-    const statsInfo = stats ? 'Сегодня: ' + (stats.completed||0) + ' поездок, ' + (stats.earned||0) + ' тг.' : '';
+    const queueInfo = extra?.queuePos ? 'Позиция в очереди: ' + extra.queuePos + '-й из ' + extra.queueTotal + ' водителей.' : '';
+    const statsInfo = stats ? 'Сегодня выполнено: ' + (stats.completed||0) + ' поездок, заработано: ' + Number(stats.earned||0).toLocaleString() + ' тг.' : '';
+    const statusLabel = extra?.status === 'online' ? '🟢 На линии' : extra?.status === 'busy' ? '🔴 В поездке' : '⚫ Офлайн';
     const r = await getGroq().chat.completions.create({
       messages: [{
         role: 'system',
-        content: 'Ты — умный помощник водителя такси в *еОсакаровка Сервис*, Осакаровка.\n' +
-          'Водителя зовут: ' + (driverName||'водитель') + '.\n' +
-          'ВРЕМЯ: ' + tod + '\n' +
-          (weatherBrief ? 'ПОГОДА: ' + weatherBrief + '\n' : '') +
-          (extra?.status === 'online' ? 'Водитель ОНЛАЙН.\n' : 'Водитель ОФЛАЙН.\n') +
+        content:
+          'Ты — умный и заботливый помощник водителя такси в *еОсакаровка Сервис*, посёлок Осакаровка, Казахстан.\n' +
+          'Водитель: ' + (driverName||'водитель') + '. Статус: ' + statusLabel + '.\n' +
+          'Время суток: ' + tod + '.\n' +
+          (weatherBrief ? 'Погода: ' + weatherBrief + '.\n' : '') +
           (queueInfo ? queueInfo + '\n' : '') +
           (statsInfo ? statsInfo + '\n' : '') +
-          'ПРАВИЛА:\n- Тепло и по-человечески\n- Максимум 2 предложения\n- Язык клиента\n' +
-          (weatherImportant ? '- Погода важная: ' + weatherImportant + '\n' : '- Погода обычная — не акцентируй\n')
+          '\nПРАВИЛА:\n' +
+          '• Общайся тепло, по-братски, уважительно\n' +
+          '• Максимум 2 предложения\n' +
+          '• Используй 1 эмодзи если уместно\n' +
+          '• Отвечай на языке водителя\n' +
+          '• Если водитель жалуется на усталость — поддержи\n' +
+          '• Если спрашивает про заказы — ответь на основе статистики\n' +
+          (weatherImportant ? '• Погода важная (' + weatherImportant + ') — упомяни если актуально\n' : '')
       }, { role: 'user', content: text }],
-      model: 'llama-3.3-70b-versatile', max_tokens: 150, temperature: 0.9,
+      model: 'llama-3.3-70b-versatile', max_tokens: 200, temperature: 0.85,
     });
     return r.choices[0]?.message?.content?.trim() || null;
   } catch(e) { console.error('[smartReply:driver]', e.message); return null; }
