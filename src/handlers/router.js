@@ -156,8 +156,8 @@ const handleNew = async (phone, name, msg) => {
     await wa.sendText(phone, greeting ||
       `👋 Сәлем, *${name}*!\nБұл *еОсакаровка Сервис* 😊\n\n🚖 Напишите куда ехать — найдём водителя!\nМекенжайды жазыңыз — жүргізуші табамыз!`
     );
-    const session = await q.getSession(phone);
-    return clientHandler.handle(phone, name, msg, session || { state: 'idle', ctx: {} });
+    // Новому клиенту уже отправили приветствие — не вызываем handle снова
+    // чтобы не было двойного ответа
   } catch (err) {
     console.error('[handleNew]', err.message);
   }
