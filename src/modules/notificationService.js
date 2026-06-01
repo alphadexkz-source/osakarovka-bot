@@ -21,7 +21,8 @@ const clientDriverFound = async (phone, driver) => {
 };
 
 const clientArrived  = async (phone) => wa.sendText(phone, `📍 *Водитель прибыл и ждёт вас!*\n\nПожалуйста, выходите. 🙌`);
-const clientInTrip   = async (phone, destination) => {};
+const clientInTrip   = async (phone, destination) =>
+  wa.sendText(phone, `🚗 *Поездка началась!*\n\n🏁 Едем: *${destination}*\n\nПриятной дороги! 😊`);
 
 const clientCompleted = async (phone, price, isFree, destination) => {
   const db = require('../db/index');
@@ -72,7 +73,7 @@ const driverAccepted = async (phone, order) => {
   const destLabel = order.is_intercity ? '\n🏁 Везти: *' + order.destination + '*' : '\n📍 Везём: *' + order.destination + '*';
   return wa.sendButtons(phone,
     '✅ *Заказ принят!*' + pickupLine + destLabel + '\n💰 Цена: *' + order.price + ' тг*\n\nКогда приедете к клиенту — напишите: *прибыл*',
-    [{ id:`arrived_${order.id}`, text:'📍 Прибыл' }, { id:`false_${order.id}`, text:'🚫 Ложный вызов' }, { id:`chat_${order.id}`, text:'💬 Написать клиенту' }]
+    [{ id:`arrived_${order.id}`, text:'📍 Прибыл' }, { id:`chat_${order.id}`, text:'💬 Клиенту' }, { id:`cancel_driver_${order.id}`, text:'🚫 Отменить' }]
   );
 };
 

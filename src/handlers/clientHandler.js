@@ -111,6 +111,46 @@ const handle = async (phone, name, msg, session) => {
       return chatRelay.fromClient(phone, text);
     }
 
+    // ─── ОЦЕНКА ПОЕЗДКИ ───────────────────────────────────────
+    if (state === 'waiting_rating') {
+      const score = parseInt(lo);
+      if (score >= 1 && score <= 5) {
+        const ctx = session?.ctx || {};
+        if (ctx.order_id && ctx.driver_id) {
+          const client = await q.getUser(phone);
+          await q.saveRating(ctx.order_id, client?.id, ctx.driver_id, score).catch(() => {});
+          await q.updateDriverRating(ctx.driver_id, score).catch(() => {});
+          const driver = await q.getDriverById(ctx.driver_id).catch(() => null);
+          const stars = '⭐'.repeat(score);
+          await wa.sendText(phone, stars + ' *Спасибо за оценку!*\nВаш отзыв помогает нам стать лучше. 🙏');
+          if (driver?.phone) {
+            const praise = score >= 4 ? '💪 Продолжайте в том же духе!' : score <= 2 ? 'Постарайтесь улучшить сервис.' : '';
+            await wa.sendText(driver.phone, '📬 *Новая оценка от клиента:*\n\n' + stars + ' *' + score + ' из 5*\n\n' + praise).catch(() => {});
+          }
+        }
+        await q.clearSession(phone);
+        return;
+      }
+      if (['пропустить','не хочу','позже','skip','отмена','стоп'].some(w => lo.includes(w))) {
+        await q.clearSession(phone);
+        await wa.sendText(phone, '👌 Хорошо! Ждём вас снова. 🚖');
+        return;
+      }
+      await wa.sendText(phone, '⭐ Напишите число от *1 до 5:*\n\n1️⃣ — плохо\n2️⃣ — так себе\n3️⃣ — нормально\n4️⃣ — хорошо\n5️⃣ — отлично\n\nИли *"пропустить"*');
+      return;
+    }
+
+    // ─── ПРИЧИНА ОТМЕНЫ КЛИЕНТОМ ──────────────────────────────
+    if (state === 'cancel_client_reason') {
+      const ctx = session?.ctx || {};
+      const reasons = { wait: 'Долго ждал водителя', plans: 'Планы изменились', address: 'Ошибся адресом' };
+      const reasonKey = type === 'button' ? buttonId?.replace('cancel_reason_', '') : null;
+      const reason = reasons[reasonKey] || 'Клиент отменил';
+      if (ctx.order_id) await orderEngine.cancel(ctx.order_id, reason);
+      else { await q.clearSession(phone); await wa.sendText(phone, '❌ Заказ отменён.'); }
+      return;
+    }
+
     if (state === 'waiting_driver') {
       if (['где','где водитель','едет','когда','статус'].some(k => lo.includes(k))) {
         const order = await q.getActiveOrderByClient(phone);
@@ -224,6 +264,31 @@ const handle = async (phone, name, msg, session) => {
 
     if (!text || text.length < 2) { await wa.sendText(phone, '🚖 Напишите куда нужно ехать:'); return; }
 
+    // ─── ПОВТОРИТЬ ПОСЛЕДНИЙ ЗАКАЗ ────────────────────────────
+    if (['повтори','повторить','снова','тот же','как прошлый раз','повтор','ещё раз','еще раз'].some(w => lo.includes(w))) {
+      const lastOrder = await q.getLastCompletedOrder(phone);
+      if (!lastOrder) { await wa.sendText(phone, '🚖 Прошлых поездок нет. Напишите куда ехать!'); return; }
+      const user = await q.getUser(phone);
+      await wa.sendText(phone, '🔄 Повторяю последний маршрут: *' + lastOrder.destination + '*');
+      return handleNewOrder(phone, name, lastOrder.destination, user);
+    }
+
+    // ─── МОЙ РЕФЕРАЛЬНЫЙ КОД ─────────────────────────────────
+    if (['мой код','реферал','пригласить','моя ссылка','бонусный код','реферальный','промокод','код друга'].some(w => lo.includes(w))) {
+      const code = await q.getOrCreateReferralCode(phone).catch(() => null);
+      if (!code) { await wa.sendText(phone, '❌ Не удалось получить код. Попробуйте позже.'); return; }
+      const refStats = await q.getReferralStats(phone).catch(() => null);
+      const invited = refStats?.activated || 0;
+      const bonus = refStats?.bonus_trips || 0;
+      await wa.sendText(phone,
+        '🎁 *Ваш реферальный код:*\n\n🔑 *' + code + '*\n\n' +
+        'Поделитесь кодом с другом — когда он совершит первую поездку, вы получите *бесплатную поездку!* 🎉\n\n' +
+        '📊 Приглашено друзей: *' + invited + '*\n' +
+        '🎫 Бонусных поездок в запасе: *' + bonus + '*'
+      );
+      return;
+    }
+
     const shortcut = await favAddr.resolveShortcut(phone, lo).catch(() => null);
     if (shortcut) { const user = await q.getUser(phone); return handleNewOrder(phone, name, shortcut.address, user); }
 
@@ -320,7 +385,25 @@ const handleButton = async (phone, buttonId, session) => {
   if (buttonId === 'confirm_order') { const f = await q.getSession(phone); if (!f||f.state!=='confirming') return; const {destination,price,tariff_id} = f.ctx; await orderEngine.create(phone, destination, {price, tariff: tariff_id?{id:tariff_id}:null}); return; }
   if (buttonId === 'confirm_intercity') { const f = await q.getSession(phone); if (!f||f.state!=='intercity_confirm') return; const ctx = f.ctx; await orderEngine.create(phone, ctx.destination, {price: ctx.price, pickup_address: ctx.pickup, is_intercity: true}); return; }
   if (buttonId === 'cancel_new') { await q.clearSession(phone); await wa.sendText(phone, '❌ Отменено. Напишите куда ехать.'); return; }
-  if (buttonId === 'cancel_order') { const order = await q.getActiveOrderByClient(phone); if (order) await orderEngine.cancel(order.id,'Отменен'); else { await q.clearSession(phone); await wa.sendText(phone,'❌ Нет активного заказа.'); } return; }
+  if (buttonId === 'cancel_order') {
+    const order = await q.getActiveOrderByClient(phone);
+    if (!order) { await q.clearSession(phone); await wa.sendText(phone, '❌ Нет активного заказа.'); return; }
+    await q.setSession(phone, 'cancel_client_reason', { order_id: order.id });
+    await wa.sendButtons(phone, '❓ *Почему отменяете заказ?*', [
+      { id:'cancel_reason_wait',    text:'⏱ Долго жду' },
+      { id:'cancel_reason_plans',   text:'🔄 Планы изменились' },
+      { id:'cancel_reason_address', text:'📍 Ошибся адресом' },
+    ]);
+    return;
+  }
+  if (buttonId.startsWith('cancel_reason_')) {
+    const reasons = { wait:'Долго ждал водителя', plans:'Планы изменились', address:'Ошибся адресом' };
+    const key = buttonId.replace('cancel_reason_', '');
+    const order = await q.getActiveOrderByClient(phone);
+    if (order) await orderEngine.cancel(order.id, reasons[key] || 'Клиент отменил');
+    else { await q.clearSession(phone); await wa.sendText(phone, '❌ Заказ отменён.'); }
+    return;
+  }
   if (buttonId === 'chat_driver') { const order = await q.getActiveOrderByClient(phone); if (!order) { await wa.sendText(phone,'❌ Нет активного заказа.'); return; } await q.setSession(phone,'chat_mode',{prev_state:session?.state||'idle',order_id:order.id}); await wa.sendText(phone,'💬 *Чат с водителем активирован.*\nНапишите сообщение — водитель его получит.\n\n✏️ Для выхода из чата напишите: *стоп*'); return; }
 };
 

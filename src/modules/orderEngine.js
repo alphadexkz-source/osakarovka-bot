@@ -186,27 +186,48 @@ const complete = async (orderId, driverPhone) => {
     if (client) {
       const refResult = await q.activateReferral(client.id);
       if (refResult?.referrerPhone) {
-        await wa.sendText(refResult.referrerPhone, 'Ваш друг завершил первую поездку!\nВам начислена 1 бесплатная поездка!');
+        await wa.sendText(refResult.referrerPhone, '🎉 *Ваш друг совершил первую поездку!*\n\n🎁 Вам начислена *1 бесплатная поездка!*\nПользуйтесь на здоровье! 😊');
       }
     }
   }
   await notify.clientCompleted(order.client_phone, order.price, order.is_free, order.destination);
   await q.setSession(order.client_phone, 'idle', {});
+
+  // Запрос оценки через 4 секунды (после прочтения прощания)
+  const capturedDriver = driver;
+  const capturedOrderId = orderId;
+  const capturedClientPhone = order.client_phone;
+  setTimeout(async () => {
+    try {
+      const sess = await q.getSession(capturedClientPhone).catch(() => null);
+      if (sess?.state === 'idle') {
+        await wa.sendText(capturedClientPhone,
+          '⭐ *Оцените поездку!*\n\nКак вам водитель *' + (capturedDriver?.full_name || 'водитель') + '*?\n\n' +
+          '1️⃣ — плохо · 2️⃣ — так себе · 3️⃣ — нормально\n4️⃣ — хорошо · 5️⃣ — отлично\n\n' +
+          'Напишите число *1–5* или *"пропустить"*'
+        );
+        await q.setSession(capturedClientPhone, 'waiting_rating', {
+          order_id: capturedOrderId, driver_id: capturedDriver?.id
+        });
+      }
+    } catch(e) { console.error('[rating request]', e.message); }
+  }, 4000);
+
   const result = await driverMgr.afterTrip(driverPhone, driver?.id, order.is_free);
   if (result.offline) {
     await notify.driverBalanceEmpty(driverPhone);
   } else {
     await notify.driverBalanceLow(driverPhone, result.balance);
-    const freeNote = order.is_free ? '\nЭта поездка — бесплатная (баланс не списан).' : '';
+    const freeNote = order.is_free ? '\n🎁 Поездка бесплатная — баланс не списан.' : '';
     const stats = await q.getDriverTodayStats(driver?.id);
-    const bal = result.balance >= 999999 ? 'бесконечно' : result.balance;
+    const bal = result.balance >= 999999 ? '∞' : result.balance;
     const pos = await q.getDriverQueuePosition(driverPhone);
     const cnt = (await q.getOnlineDriversQueue()).length;
     await wa.sendText(driverPhone,
-      'Поездка завершена!' + freeNote + '\n\n' +
-      'Сегодня: ' + (stats?.completed||0) + ' поездок | ' + Number(stats?.earned||0).toLocaleString() + ' тг\n' +
-      'Баланс: ' + bal + '\n' +
-      'Позиция в очереди: ' + pos + ' из ' + cnt
+      '✅ *Поездка завершена!*' + freeNote + '\n\n' +
+      '📊 Сегодня: *' + (stats?.completed||0) + '* поездок | *' + Number(stats?.earned||0).toLocaleString() + ' тг*\n' +
+      '📦 Баланс: *' + bal + '*\n' +
+      '📋 Очередь: *' + pos + ' из ' + cnt + '*'
     );
   }
   await q.clearSession(driverPhone);

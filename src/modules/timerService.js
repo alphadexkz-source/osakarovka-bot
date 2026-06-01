@@ -130,14 +130,53 @@ const start = () => {
       const drivers = await q.getAllDrivers();
       const online = drivers.filter(d => ['online','busy'].includes(d.status)).length;
       await wa.sendText(adminPhone,
-        'Доброе утро! Итоги вчера:\n\n' +
-        'Поездок: ' + stats.completed + '\n' +
-        'Отменено: ' + stats.cancelled + '\n' +
-        'Оборот: ' + Number(stats.revenue).toLocaleString() + ' тг\n' +
-        'Клиентов: ' + stats.unique_clients + '\n\n' +
-        'Водителей сейчас: ' + online + '/' + drivers.length
+        '☀️ *Доброе утро! Итоги вчера:*\n\n' +
+        '✅ Поездок: *' + stats.completed + '*\n' +
+        '❌ Отменено: *' + stats.cancelled + '*\n' +
+        '💰 Оборот: *' + Number(stats.revenue).toLocaleString() + ' тг*\n' +
+        '👤 Клиентов: *' + stats.unique_clients + '*\n\n' +
+        '🚗 Водителей сейчас: *' + online + '/' + drivers.length + '*'
       );
     } catch(e) { console.error('[Timer/morning_admin]', e.message); }
+  });
+
+  // Каждое воскресенье 20:00 — недельный отчёт админу
+  cron.schedule('0 20 * * 0', async () => {
+    try {
+      const adminPhone = await q.getSetting('admin_phone');
+      if (!adminPhone) return;
+      const stats = await q.getPeriodStats(7);
+      const top = await q.getTopDrivers(7);
+      const topLines = top.map((d,i) => `${i+1}. ${d.full_name} — ${d.trips} поезд. | ${Number(d.earned).toLocaleString()} тг`).join('\n');
+      await wa.sendText(adminPhone,
+        '📊 *Итоги недели:*\n\n' +
+        '✅ Поездок: *' + stats.completed + '*\n' +
+        '❌ Отменено: *' + stats.cancelled + '*\n' +
+        '💰 Оборот: *' + Number(stats.revenue).toLocaleString() + ' тг*\n' +
+        '👥 Уникальных клиентов: *' + stats.unique_clients + '*\n\n' +
+        '🏆 *Топ водителей:*\n' + (topLines || 'Нет данных')
+      );
+    } catch(e) { console.error('[Timer/weekly_admin]', e.message); }
+  });
+
+  // 1-е число каждого месяца 09:00 — месячный отчёт
+  cron.schedule('0 9 1 * *', async () => {
+    try {
+      const adminPhone = await q.getSetting('admin_phone');
+      if (!adminPhone) return;
+      const stats = await q.getPeriodStats(30);
+      const db = require('../db/index');
+      const usersCount = await db.query(`SELECT COUNT(*) AS cnt FROM users WHERE role='client'`).then(r => r.rows[0]?.cnt).catch(() => 0);
+      await wa.sendText(adminPhone,
+        '📅 *Итоги месяца:*\n\n' +
+        '✅ Поездок: *' + stats.completed + '*\n' +
+        '❌ Отменено: *' + stats.cancelled + '*\n' +
+        '💰 Оборот: *' + Number(stats.revenue).toLocaleString() + ' тг*\n' +
+        '👥 Активных клиентов: *' + stats.unique_clients + '*\n' +
+        '👤 Всего клиентов в базе: *' + usersCount + '*\n\n' +
+        '🚖 Средний доход/день: *' + Number(Math.round(stats.revenue/30)).toLocaleString() + ' тг*'
+      );
+    } catch(e) { console.error('[Timer/monthly_admin]', e.message); }
   });
 
   console.log('Timer service started');

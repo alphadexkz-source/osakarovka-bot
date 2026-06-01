@@ -121,8 +121,30 @@ const handle = async (phone, msg, session) => {
       return;
     }
 
+    // ─── ПЕРЕРЫВ НА N МИНУТ ───────────────────────────────────
+    const breakMatch = lo.match(/перерыв\s+(\d+)/);
+    if (breakMatch) {
+      const mins = Math.min(parseInt(breakMatch[1]), 180);
+      await driverMgr.goOffline(phone);
+      await wa.sendText(phone, '⏸ *Перерыв ' + mins + ' мин.*\n\nОтдыхайте! ☕ Автоматически верну вас на линию через *' + mins + ' мин.*');
+      setTimeout(async () => {
+        try {
+          const d = await q.getDriver(phone);
+          if (d?.status === 'offline') {
+            const r = await driverMgr.goOnline(phone);
+            if (r.success) {
+              const pos = await q.getDriverQueuePosition(phone);
+              const cnt = (await q.getOnlineDriversQueue()).length;
+              await wa.sendText(phone, '🟢 *Перерыв закончился!*\n\nВы снова на линии — *' + pos + '-й* из *' + cnt + '* водителей. Удачных заказов! 🚖');
+            }
+          }
+        } catch(e) { console.error('[break timer]', e.message); }
+      }, mins * 60 * 1000);
+      return;
+    }
+
     if (match(lo, KW.EDIT)) {
-      await wa.sendText(phone, 'Что изменить?\n\nимя - изменить ФИО\nавто - изменить марку и номер\nфото - новое фото авто\nцвет - цвет автомобиля');
+      await wa.sendText(phone, '✏️ *Что изменить?*\n\n*имя* — изменить ФИО\n*авто* — марку и номер\n*фото* — фото авто\n*цвет* — цвет автомобиля');
       return;
     }
     if (['имя','фио'].includes(lo))  { await q.setSession(phone, 'edit_name', {}); await wa.sendText(phone, 'Введите новое ФИО:'); return; }
@@ -198,6 +220,23 @@ const handleButton = async (phone, buttonId) => {
   if (buttonId.startsWith('skip_'))    { await q.moveDriverToEndOfQueue(phone); await wa.sendText(phone, 'Пропущено.'); return; }
   if (buttonId.startsWith('arrived_')) { await orderEngine.arrived(parseInt(buttonId.replace('arrived_', '')), phone); return; }
   if (buttonId.startsWith('false_'))   { await orderEngine.falseCall(parseInt(buttonId.replace('false_', '')), phone); return; }
+  if (buttonId.startsWith('cancel_driver_')) {
+    await q.setSession(phone, 'cancel_reason', {});
+    await wa.sendButtons(phone, '🚫 *Отмена заказа*\n\nУкажите причину:', [
+      { id:'driver_cancel_client', text:'👤 Клиент не вышел' },
+      { id:'driver_cancel_road',   text:'🛣 Не могу доехать' },
+      { id:'driver_cancel_other',  text:'❓ Другое' },
+    ]);
+    return;
+  }
+  if (buttonId.startsWith('driver_cancel_')) {
+    const reasons = { client:'Клиент не вышел', road:'Водитель не может доехать', other:'Водитель отменил' };
+    const key = buttonId.replace('driver_cancel_', '');
+    const order = await q.getActiveOrderByDriver(phone);
+    if (order) await orderEngine.cancel(order.id, reasons[key] || 'Водитель отменил');
+    else { await q.clearSession(phone); await wa.sendText(phone, '❌ Нет активного заказа.'); }
+    return;
+  }
   if (buttonId.startsWith('done_'))    { await orderEngine.complete(parseInt(buttonId.replace('done_', '')), phone); return; }
   if (buttonId.startsWith('chat_'))    { await q.setSession(phone, 'driver_chat', { order_id: parseInt(buttonId.replace('chat_', '')) }); await wa.sendText(phone, 'Чат с клиентом. Выход: стоп'); return; }
   if (buttonId === 'edit_name')  { await q.setSession(phone, 'edit_name', {}); await wa.sendText(phone, 'Введите новое ФИО:'); return; }
