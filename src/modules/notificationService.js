@@ -57,17 +57,24 @@ const clientCompleted = async (phone, price, isFree, destination) => {
 const clientNoDrivers = async (phone) => wa.sendText(phone, `😔 *Свободных водителей нет.*\nПопробуйте через несколько минут. 🙏`);
 const clientCancelled = async (phone, reason='') => wa.sendText(phone, `❌ Заказ отменён${reason?': '+reason:''}.\n\nНапишите куда ехать. 🚖`);
 
-const driverNewOrder = async (phone, order) =>
-  wa.sendButtons(phone,
-    `🚖 *НОВЫЙ ЗАКАЗ!*\n\n📍 Куда: *${order.destination}*\n💰 Цена: *${order.price} тг*\n👤 ${order.client_name||'Клиент'}\n\n⏱ *60 секунд* на решение\n\n✅ *принял* — принять заказ\n⏭ *пропустить* — передать следующему\n🚫 *ложный* — если приехали, а клиента нет (штраф клиенту *250 тг*)`,
+const driverNewOrder = async (phone, order) => {
+  const pickupLine = order.pickup_address ? '\n📍 Забрать: *' + order.pickup_address + '*' : '';
+  const destLine = order.is_intercity ? '\n🏁 Везти: *' + order.destination + '*' : '\n📍 Куда: *' + order.destination + '*';
+  const intercityMark = order.is_intercity ? '\n🚗 *МЕЖГОРОД*' : '';
+  return wa.sendButtons(phone,
+    '🚖 *НОВЫЙ ЗАКАЗ!*' + intercityMark + pickupLine + destLine + '\n💰 Цена: *' + order.price + ' тг*\n👤 ' + (order.client_name||'Клиент') + '\n\n⏱ *60 секунд* на решение\n\n✅ *принял* — принять заказ\n⏭ *пропустить* — передать следующему\n🚫 *ложный* — если приехали, а клиента нет (штраф клиенту *250 тг*)',
     [{ id:`accept_${order.id}`, text:'✅ Принять' }, { id:`skip_${order.id}`, text:'⏭ Пропустить' }]
   );
+};
 
-const driverAccepted = async (phone, order) =>
-  wa.sendButtons(phone,
-    `✅ *Заказ принят!*\n\n📍 Везём: *${order.destination}*\n💰 Цена: *${order.price} тг*\n\nКогда приедете к клиенту — напишите: *прибыл*`,
+const driverAccepted = async (phone, order) => {
+  const pickupLine = order.pickup_address ? '\n📍 Забрать: *' + order.pickup_address + '*' : '';
+  const destLabel = order.is_intercity ? '\n🏁 Везти: *' + order.destination + '*' : '\n📍 Везём: *' + order.destination + '*';
+  return wa.sendButtons(phone,
+    '✅ *Заказ принят!*' + pickupLine + destLabel + '\n💰 Цена: *' + order.price + ' тг*\n\nКогда приедете к клиенту — напишите: *прибыл*',
     [{ id:`arrived_${order.id}`, text:'📍 Прибыл' }, { id:`false_${order.id}`, text:'🚫 Ложный вызов' }, { id:`chat_${order.id}`, text:'💬 Написать клиенту' }]
   );
+};
 
 const driverTripStarted = async (phone, order) =>
   wa.sendButtons(phone,
