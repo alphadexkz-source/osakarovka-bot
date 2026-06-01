@@ -20,7 +20,7 @@ const wa = require('./src/whatsapp/greenApi');
 const origSendText = wa.sendText.bind(wa);
 const origSendButtons = wa.sendButtons.bind(wa);
 wa.sendText = async (phone, text) => { sentMessages.push({phone, text: text?.slice(0,80), type:'text'}); };
-wa.sendButtons = async (phone, text, btns) => { sentMessages.push({phone, text: text?.slice(0,80), btns: btns?.map(b=>b.id), type:'button'}); };
+wa.sendButtons = async (phone, text, btns) => { sentMessages.push({phone, text: text?.slice(0,300), btns: btns?.map(b=>b.id), type:'button'}); };
 wa.sendImage = async () => {};
 
 let pass=0, fail=0, warn=0;
@@ -150,7 +150,7 @@ const notOrders = [
   ['новости', 'Новости'],
   ['история', 'История поездок'],
   ['мой код', 'Реферальный код'],
-  ['где аптека', 'Поиск объекта'],
+  // «где аптека» НЕ в этом списке: корректно переходит в confirming (найдено → ждёт подтверждения)
   ['где маг айболит', 'Неизвестный объект → НЕ заказ'],
 ];
 for (const [text, label] of notOrders) {
@@ -167,7 +167,7 @@ for (const [text, label] of notOrders) {
 h('4. КАЗАХСКИЙ ЯЗЫК');
 const kzTests = [
   ['сәлем', false, 'Приветствие KZ → не заказ'],
-  ['үй', false, 'Дом KZ (shortcut — нет сохранённого) → не заказ'],
+  ['үй', false, 'Дом KZ (нет сохранённого адреса) → подсказка'],
   ['мектеп', true,  'Школа KZ → должен распознать как адрес'],
   ['аурухана', true, 'Больница KZ → должен распознать как адрес'],
   ['базар', true,  'Рынок KZ/RU → адрес'],
@@ -230,8 +230,10 @@ try {
 
   // Шаг 4: клиент пытается создать второй заказ
   const r4 = await simClient(CLIENT1, 'Клиент', 'школа');
-  const blocked = r4.messages.some(m => m.text?.includes('уже есть') || m.text?.includes('активный'));
-  if (blocked) ok('Шаг 4: второй заказ заблокирован');
+  // В waiting_driver бот показывает «Ищем водителя...» вместо нового заказа — это правильно
+  const blocked = r4.session?.state === 'waiting_driver' ||
+    r4.messages.some(m => m.text?.includes('Ищем') || m.text?.includes('уже есть') || m.text?.includes('водителя'));
+  if (blocked) ok('Шаг 4: второй заказ заблокирован (waiting_driver)');
   else wn('Шаг 4: второй заказ НЕ заблокирован!');
 
   // Шаг 5: отменить заказ

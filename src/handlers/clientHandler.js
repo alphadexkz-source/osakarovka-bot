@@ -420,6 +420,15 @@ const handle = async (phone, name, msg, session) => {
 
     const shortcut = await favAddr.resolveShortcut(phone, lo).catch(() => null);
     if (shortcut) { const user = await q.getUser(phone); return handleNewOrder(phone, name, shortcut.address, user); }
+    // Если написали «домой»/«үй» но адрес не сохранён — подсказываем
+    if (['домой','дома','үйге','үй','домашний адрес'].some(w => lo === w)) {
+      await wa.sendText(phone, '🏠 Домашний адрес не сохранён.\n\nЧтобы сохранить:\n*"домой это [ваш адрес]"*\n\nНапример: домой это ул. Ленина 5');
+      return;
+    }
+    if (['на работу','работа','жұмыс','жұмысқа','рабочий адрес'].some(w => lo === w)) {
+      await wa.sendText(phone, '🏢 Рабочий адрес не сохранён.\n\nЧтобы сохранить:\n*"работа это [ваш адрес]"*\n\nНапример: работа это ул. Школьная 15');
+      return;
+    }
 
     if (lo.startsWith('домой это ') || lo.startsWith('мой дом ')) {
       const addr = text.replace(/^домой это |^мой дом /i, '').trim();
