@@ -5,7 +5,7 @@ const tariff = require('../modules/tariffEngine');
 const orderEngine = require('../modules/orderEngine');
 const chatRelay = require('../modules/chatRelay');
 const config = require('../config');
-const { isAddress, resolveAddress } = require('../modules/addressDetector');
+const { isAddress, resolveAddress, findInAddresses } = require('../modules/addressDetector');
 const { recognizeVoice } = require('../modules/voiceRecognizer');
 const { getGroqReply, parseScheduleTime } = require('../modules/smartReply');
 const { dailyGreeting } = require('../modules/greetingService');
@@ -315,6 +315,29 @@ const handle = async (phone, name, msg, session) => {
       return;
     }
 
+    // ─── ПОИСК АДРЕСА ОБЪЕКТА («где аптека», «адрес больницы») ──
+    const whereRe = /^(?:где|адрес|как найти|как доехать|где находится|найди|покажи адрес)\s+(.+)/i;
+    const whereMatch = lo.match(whereRe);
+    if (whereMatch) {
+      const objName = whereMatch[1].trim();
+      const found = await findInAddresses(objName).catch(() => ({ found: false }));
+      if (found.found) {
+        const addrLine = found.address && found.address !== 'п. Осакаровка' ? '\n🏠 Адрес: *' + found.address + '*' : '';
+        const catLine  = found.category ? '\n📂 ' + found.category : '';
+        await wa.sendButtons(phone,
+          '📍 *' + found.name + '*' + addrLine + catLine + '\n\nЗаказать такси туда?',
+          [{ id:'order_found', text:'🚖 Да, везите туда!' }, { id:'cancel_new', text:'❌ Нет, спасибо' }]
+        );
+        await q.setSession(phone, 'confirming', {
+          destination: found.name + (found.address && found.address !== 'п. Осакаровка' ? ', ' + found.address : ''),
+          price: (await tariff.getPrice(found.name)).price,
+          tariff_id: (await tariff.getPrice(found.name)).tariff?.id || null
+        });
+        return;
+      }
+      // Объект не найден в базе — Groq ответит
+    }
+
     if (['есть такси','есть машина','такси есть','бар ма такси','такси бар ма','свободные водители'].some(w => lo.includes(w))) {
       const online = await q.getOnlineDriversQueue().catch(() => []);
       const cnt = online.length;
@@ -382,7 +405,7 @@ const handleNewOrder = async (phone, name, text, user) => {
 };
 
 const handleButton = async (phone, buttonId, session) => {
-  if (buttonId === 'confirm_order') { const f = await q.getSession(phone); if (!f||f.state!=='confirming') return; const {destination,price,tariff_id} = f.ctx; await orderEngine.create(phone, destination, {price, tariff: tariff_id?{id:tariff_id}:null}); return; }
+  if (buttonId === 'confirm_order' || buttonId === 'order_found') { const f = await q.getSession(phone); if (!f||f.state!=='confirming') return; const {destination,price,tariff_id} = f.ctx; await orderEngine.create(phone, destination, {price, tariff: tariff_id?{id:tariff_id}:null}); return; }
   if (buttonId === 'confirm_intercity') { const f = await q.getSession(phone); if (!f||f.state!=='intercity_confirm') return; const ctx = f.ctx; await orderEngine.create(phone, ctx.destination, {price: ctx.price, pickup_address: ctx.pickup, is_intercity: true}); return; }
   if (buttonId === 'cancel_new') { await q.clearSession(phone); await wa.sendText(phone, '❌ Отменено. Напишите куда ехать.'); return; }
   if (buttonId === 'cancel_order') {

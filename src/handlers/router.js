@@ -93,7 +93,11 @@ const route = async (body) => {
       const driver = await q.getDriver(phone);
       const status = driver?.status || 'offline';
       if (status === 'online' || status === 'busy') return driverHandler.handle(phone, msg, session);
-      if (session?.state?.startsWith('reg_') || session?.state?.startsWith('edit_') || session?.state === 'driver_chat') return driverHandler.handle(phone, msg, session);
+      // FIX: driver_as_client и cancel_reason — состояния водителя, не клиента
+      const driverOnlyStates = ['driver_as_client', 'driver_chat', 'cancel_reason'];
+      if (session?.state?.startsWith('reg_') ||
+          session?.state?.startsWith('edit_') ||
+          driverOnlyStates.includes(session?.state)) return driverHandler.handle(phone, msg, session);
       if (GO_ONLINE.some(w => lo.includes(w))) return driverHandler.handle(phone, msg, session);
       return clientHandler.handle(phone, name, msg, session);
     }
@@ -104,6 +108,9 @@ const route = async (body) => {
       const driver = await q.getDriver(phone);
       const status = driver?.status || 'offline';
       if (status === 'online' || status === 'busy') return driverHandler.handle(phone, msg, session);
+      // FIX: если админ-водитель в режиме driver_as_client — в driverHandler
+      if (['driver_as_client', 'driver_chat', 'cancel_reason'].includes(session?.state) && driver)
+        return driverHandler.handle(phone, msg, session);
       if (GO_ONLINE.some(w => lo.includes(w)) && driver) return driverHandler.handle(phone, msg, session);
       return clientHandler.handle(phone, name, msg, session);
     }
