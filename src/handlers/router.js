@@ -6,7 +6,9 @@ const adminHandler = require('./adminHandler');
 const config = require('../config');
 const { newClientGreeting } = require('../modules/greetingService');
 
-const GO_ONLINE = ['на линию','на линии','выхожу','начинаю','работаю','онлайн','старт','начать','лайн','жұмыс','жұмысқа','линияға шығам','шығамын'];
+// 'на линии' убрано — встречается в вопросах («сколько машин на линии»)
+// 'лайн' убрано — слишком короткое, срабатывает на чужих словах
+const GO_ONLINE = ['на линию','выхожу','начинаю','работаю','онлайн','старт','начать','жұмыс','жұмысқа','линияға шығам','шығамын'];
 
 const parse = (body) => {
   console.log('[WEBHOOK TYPE]', body.typeWebhook, body.senderData?.sender);
