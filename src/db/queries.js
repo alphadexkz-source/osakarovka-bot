@@ -204,10 +204,10 @@ const deleteTariff = async (id) => {
 };
 
 // ─── ORDERS ───────────────────────────────────────────────────
-const createOrder = async ({client_id,destination,price,tariff_id,is_free}) => {
+const createOrder = async ({client_id,destination,price,tariff_id,is_free,pickup_address,is_intercity}) => {
   const r = await db.query(
-    `INSERT INTO orders(client_id,destination,price,tariff_id,is_free) VALUES($1,$2,$3,$4,$5) RETURNING *`,
-    [client_id, destination, price, tariff_id||null, is_free||false]
+    `INSERT INTO orders(client_id,destination,price,tariff_id,is_free,pickup_address,is_intercity) VALUES($1,$2,$3,$4,$5,$6,$7) RETURNING *`,
+    [client_id, destination, price, tariff_id||null, is_free||false, pickup_address||null, is_intercity||false]
   );
   return r.rows[0];
 };
