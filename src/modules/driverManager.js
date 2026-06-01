@@ -10,6 +10,8 @@ const goOnline = async (phone) => {
 
   await q.setDriverStatus(phone, 'online');
   await q.moveDriverToEndOfQueue(phone);
+  // Сбрасываем skip_next при выходе на линию
+  await q.updateDriver(phone, { skip_next: false }).catch(() => {});
   return { success: true, driver };
 };
 

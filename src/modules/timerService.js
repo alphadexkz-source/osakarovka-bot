@@ -13,9 +13,11 @@ const start = () => {
       const db = require('../db/index');
       // Заказы в статусе searching больше 10 минут — отменяем
       const stuck = await db.query(
-        `SELECT id, client_phone FROM orders 
-         WHERE status = 'searching' 
-         AND created_at < NOW() - INTERVAL '10 minutes'`
+        `SELECT o.id, u.phone AS client_phone
+         FROM orders o
+         JOIN users u ON o.client_id = u.id
+         WHERE o.status = 'searching'
+         AND o.created_at < NOW() - INTERVAL '10 minutes'`
       ).then(r => r.rows).catch(() => []);
       for (const order of stuck) {
         await db.query(`UPDATE orders SET status='cancelled', cancel_reason='Нет водителей' WHERE id=$1`, [order.id]);
