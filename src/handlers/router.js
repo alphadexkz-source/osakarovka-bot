@@ -9,6 +9,7 @@ const { newClientGreeting } = require('../modules/greetingService');
 const GO_ONLINE = ['на линию','на линии','выхожу','начинаю','работаю','онлайн','старт','начать','лайн','жұмыс','жұмысқа','линияға шығам','шығамын'];
 
 const parse = (body) => {
+  console.log('[WEBHOOK TYPE]', body.typeWebhook, body.senderData?.sender);
   if (body.typeWebhook !== 'incomingMessageReceived') return null;
   const { senderData, messageData } = body;
   if (!senderData?.sender || !messageData) return null;
@@ -74,16 +75,14 @@ const route = async (body) => {
       return;
     }
 
-    // НОВЫЙ ПОЛЬЗОВАТЕЛЬ — только одно приветствие
+    // НОВЫЙ ПОЛЬЗОВАТЕЛЬ
     if (role === 'new' || !user) {
       await q.createUser(phone, name, 'client');
       await q.setSession(phone, 'idle', {});
-      // Умное приветствие через Groq — ТОЛЬКО ОДНО сообщение
       const greeting = await newClientGreeting(name, text).catch(() => null);
       await wa.sendText(phone, greeting ||
         'Добро пожаловать в еОсакаровка Сервис!\n\nНапишите куда нужно ехать — найдём водителя.\nКаждая 10-я поездка бесплатная!'
       );
-      // Если написал адрес сразу — обрабатываем
       const freshSession = await q.getSession(phone);
       return clientHandler.handle(phone, name, msg, freshSession || { state: 'idle', ctx: {} });
     }
@@ -93,13 +92,9 @@ const route = async (body) => {
       await q.updateDriverActivity(phone).catch(() => {});
       const driver = await q.getDriver(phone);
       const status = driver?.status || 'offline';
-      // Онлайн/занят → водитель
       if (status === 'online' || status === 'busy') return driverHandler.handle(phone, msg, session);
-      // В процессе регистрации → водитель
       if (session?.state?.startsWith('reg_') || session?.state?.startsWith('edit_') || session?.state === 'driver_chat') return driverHandler.handle(phone, msg, session);
-      // Говорит "на линию" → водитель
       if (GO_ONLINE.some(w => lo.includes(w))) return driverHandler.handle(phone, msg, session);
-      // Офлайн → клиент
       return clientHandler.handle(phone, name, msg, session);
     }
 
@@ -113,7 +108,6 @@ const route = async (body) => {
       return clientHandler.handle(phone, name, msg, session);
     }
 
-    // КЛИЕНТ
     return clientHandler.handle(phone, name, msg, session);
 
   } catch (err) {
