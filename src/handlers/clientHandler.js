@@ -262,7 +262,11 @@ const handleNewOrder = async (phone, name, text, user) => {
     return;
   }
   const resolved = await resolveAddress(text).catch(() => ({ found: false }));
-  const displayAddress = resolved.found ? resolved.name : text;
+  // Используем resolved.name только если он длиннее оригинала (обогащает адрес).
+  // Если пользователь добавил номер дома — оставляем его текст как есть.
+  const displayAddress = (resolved.found && resolved.name.length > text.trim().length)
+    ? resolved.name
+    : text.trim();
   const pi = await tariff.getPrice(text);
   const nightNote = pi.isNight ? ' (ночной тариф)' : '';
   const freeNote = user && (user.trip_count+1) % config.FREE_TRIP_EVERY === 0 ? '\nЭта поездка будет БЕСПЛАТНОЙ!' : '';
