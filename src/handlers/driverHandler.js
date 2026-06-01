@@ -282,11 +282,12 @@ const handleRegistration = async (phone, msg, state) => {
       await q.updateDriver(phone, { car_color: text.trim().slice(0, 50) });
       await q.clearSession(phone);
       const d = await q.getDriver(phone);
+      if (!d) { await wa.sendText(phone, '✅ Регистрация завершена! Напишите *"на линию"* чтобы начать.'); break; }
       await wa.sendText(phone,
         '🎉 *Добро пожаловать в еОсакаровка Сервис!*\n\n' +
-        '👤 Водитель: *' + d.full_name + '*\n' +
-        '🚗 Авто: *' + d.car_make + '*, ' + d.car_color + '\n' +
-        '🔢 Номер: *' + d.car_plate + '*\n\n' +
+        '👤 Водитель: *' + (d.full_name||'—') + '*\n' +
+        '🚗 Авто: *' + (d.car_make||'—') + '*, ' + (d.car_color||'—') + '\n' +
+        '🔢 Номер: *' + (d.car_plate||'—') + '*\n\n' +
         '📋 *Основные команды:*\n' +
         '🟢 *на линию* — начать работу\n' +
         '⚫ *с линии* — закончить работу\n' +

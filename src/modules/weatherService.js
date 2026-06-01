@@ -4,12 +4,6 @@ const CITY = 'Osakarovka,KZ';
 let cache = null, cacheTime = 0;
 const CACHE_TTL = 30 * 60 * 1000;
 
-function httpGet(url) {
-  return new Promise((res, rej) => {
-    https.get(url, r => { let d=''; r.on('data', c => d+=c); r.on('end', () => { try { res(JSON.parse(d)) } catch(e) { rej(e) } }); }).on('error', rej);
-  });
-}
-
 const getWeather = async () => {
   if (cache && Date.now() - cacheTime < CACHE_TTL) return cache;
   if (!WEATHER_API_KEY) return null;

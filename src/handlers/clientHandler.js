@@ -148,8 +148,13 @@ const handle = async (phone, name, msg, session) => {
       const reasons = { wait: 'Долго ждал водителя', plans: 'Планы изменились', address: 'Ошибся адресом' };
       const reasonKey = type === 'button' ? buttonId?.replace('cancel_reason_', '') : null;
       const reason = reasons[reasonKey] || 'Клиент отменил';
-      if (ctx.order_id) await orderEngine.cancel(ctx.order_id, reason);
-      else { await q.clearSession(phone); await wa.sendText(phone, '❌ Заказ отменён.'); }
+      if (ctx.order_id) {
+        await orderEngine.cancel(ctx.order_id, reason);
+        await wa.sendText(phone, '❌ *Заказ отменён.*\nПричина: ' + reason + '\n\nНапишите куда ехать — найдём нового водителя! 🚖').catch(() => {});
+      } else {
+        await q.clearSession(phone);
+        await wa.sendText(phone, '❌ Заказ отменён. Напишите куда ехать. 🚖');
+      }
       return;
     }
 
@@ -443,6 +448,11 @@ const handle = async (phone, name, msg, session) => {
     const whereMatch = lo.match(whereRe);
     if (whereMatch) {
       const objName = whereMatch[1].trim();
+      // Если в запросе есть цифры (номер дома) — это скорее адрес назначения, не поиск
+      if (/\d/.test(objName)) {
+        const user = await q.getUser(phone);
+        return handleNewOrder(phone, name, objName, user);
+      }
       const found = await findInAddresses(objName).catch(() => ({ found: false }));
       if (found.found) {
         const addrLine = found.address && found.address !== 'п. Осакаровка' ? '\n🏠 Адрес: *' + found.address + '*' : '';
