@@ -26,9 +26,9 @@ const penalizeSkip = async (driverPhone) => {
     const driver = await q.getDriver(driverPhone);
     // Уведомляем водителя
     await wa.sendText(driverPhone,
-      'Время вышло — заказ передан следующему водителю.\n\n' +
-      'Ваш рейтинг немного снизился из-за пропуска.\n' +
-      'Старайтесь отвечать вовремя!'
+      '⏱ *Время вышло* — заказ передан следующему водителю.\n\n' +
+      '📉 Рейтинг немного снизился из-за пропуска.\n' +
+      '⚡ Старайтесь отвечать быстрее!'
     );
   } catch(e) { console.error('[penalizeSkip]', e.message); }
 };
@@ -64,7 +64,7 @@ const create = async (clientPhone, destination, priceInfo) => {
     setTimeout(async () => {
       const fresh = await q.getOrder(order.id).catch(() => null);
       if (fresh?.status === 'searching') {
-        await wa.sendText(clientPhone, 'Ещё ищем водителя... Спасибо за терпение!\nКак только найдём — сразу сообщим.');
+        await wa.sendText(clientPhone, '🔍 *Ещё ищем водителя...* Спасибо за терпение!\nКак только найдём — сразу сообщим! 🚖');
       }
     }, 3 * 60 * 1000);
 

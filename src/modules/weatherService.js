@@ -34,31 +34,48 @@ const getWeather = async () => {
   } catch(e) { console.error('[weatherService]', e.message); return null; }
 };
 
-// Возвращает строку только если погода ВАЖНАЯ
+const weatherIcon = (w) => {
+  if (!w) return '🌡';
+  if (w.isSnow) return '❄️';
+  if (w.isRain) return '🌧';
+  if (w.isCold) return '🥶';
+  if (w.isHot)  return '🔥';
+  if (w.isWind) return '💨';
+  return '☀️';
+};
+
+// Полная погода для команды «погода» — всегда отображается
+const formatWeatherFull = (w) => {
+  if (!w) return null;
+  const icon = weatherIcon(w);
+  let advice = '';
+  if (w.isRain)  advice = '☔ Захватите зонт — или возьмите такси!';
+  else if (w.isSnow) advice = '🛣 Дорога скользкая. Будьте осторожны!';
+  else if (w.isCold) advice = '🧥 Оденьтесь теплее. В такси теплее!';
+  else if (w.isHot)  advice = '🌊 Жарко! Такси спасёт от солнца.';
+  else if (w.isWind) advice = '💨 Сильный ветер — в такси комфортнее!';
+  else advice = '😊 Погода отличная — приятных поездок!';
+  return `${icon} *${w.temp}°C*, ощущается как *${w.feels}°C*\n🌤 ${w.condition}\n💧 Влажность: ${w.humidity}%\n💨 Ветер: ${w.wind} км/ч\n\n${advice}`;
+};
+
+// Для Groq-промптов — показываем даже при умеренной погоде
 const formatWeatherForGroq = (w) => {
   if (!w) return '';
-  // Обычная погода — не упоминаем
-  if (w.isNormal) return '';
   let advice = '';
   if (w.isRain)  advice = 'Идёт дождь — отличный повод взять такси!';
   else if (w.isSnow) advice = 'Снегопад — дорога скользкая, лучше на такси.';
   else if (w.isCold) advice = 'Сильный мороз на улице — грейтесь в машине!';
   else if (w.isHot)  advice = 'Очень жарко — такси спасёт от жары!';
   else if (w.isWind) advice = 'Сильный ветер — комфортнее в такси.';
-  if (!advice) return '';
+  if (!advice) return ''; // обычная погода — не упоминаем в тексте
   return `${w.temp}°C, ${w.condition}. ${advice}`;
 };
 
-// Краткая погода для водителя — только температура без лишнего
+// Краткая погода для водителя
 const formatWeatherBrief = (w) => {
   if (!w) return '';
-  if (w.isNormal) return `${w.temp}°C, ${w.condition}`;
-  if (w.isRain)  return `${w.temp}°C, дождь`;
-  if (w.isSnow)  return `${w.temp}°C, снег`;
-  if (w.isCold)  return `${w.temp}°C, мороз`;
-  if (w.isHot)   return `${w.temp}°C, жара`;
-  if (w.isWind)  return `${w.temp}°C, ветер`;
-  return `${w.temp}°C`;
+  const icon = weatherIcon(w);
+  return `${icon} ${w.temp}°C, ${w.condition}`;
 };
 
-module.exports = { getWeather, formatWeatherForGroq, formatWeatherBrief };
+module.exports = { getWeather, formatWeatherForGroq, formatWeatherFull, formatWeatherBrief };

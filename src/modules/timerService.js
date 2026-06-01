@@ -21,7 +21,7 @@ const start = () => {
       ).then(r => r.rows).catch(() => []);
       for (const order of stuck) {
         await db.query(`UPDATE orders SET status='cancelled', cancel_reason='Нет водителей' WHERE id=$1`, [order.id]);
-        await wa.sendText(order.client_phone, 'К сожалению, свободных водителей не нашлось.\nПопробуйте заказать позже.');
+        await wa.sendText(order.client_phone, '😔 *К сожалению, свободных водителей не нашлось.*\n\nПопробуйте заказать через несколько минут. 🚖');
       }
     } catch(e) { console.error('[Timer/stuck_orders]', e.message); }
   });
@@ -50,7 +50,7 @@ const start = () => {
       `);
       for (const d of r.rows) {
         await wa.sendText(d.phone,
-          'Доброе утро, ' + d.full_name + '!\n\nКлиенты уже пишут — выходите на линию!\n\nНапишите "на линию" чтобы начать работу.'
+          '☀️ *Доброе утро, ' + d.full_name + '!*\n\n🚖 Клиенты уже пишут — выходите на линию!\n\nНапишите *"на линию"* чтобы начать работу. 💪'
         );
         await new Promise(r => setTimeout(r, 500));
       }
@@ -70,7 +70,7 @@ const start = () => {
           WHERE d.status = 'offline' AND d.order_balance > 0
         `);
         for (const d of r.rows) {
-          await wa.sendText(d.phone, d.full_name + ', вечерний час пик!\nЗа последний час ' + ordersCount + ' заказов.\nВыходите на линию — напишите "на линию"!');
+          await wa.sendText(d.phone, '🔥 *' + d.full_name + ', вечерний час пик!*\n\n📊 За последний час: *' + ordersCount + '* заказов.\n🚖 Выходите на линию — напишите *"на линию"*!');
           await new Promise(r => setTimeout(r, 500));
         }
       }
@@ -91,7 +91,7 @@ const start = () => {
       `);
       for (const d of r.rows) {
         const days = Math.floor((Date.now() - new Date(d.last_activity)) / 86400000);
-        await wa.sendText(d.phone, d.full_name + ', вас не было ' + days + ' дней!\n\nКлиенты скучают. Когда будете готовы — напишите "на линию".');
+        await wa.sendText(d.phone, '👋 *' + d.full_name + '*, вас не было *' + days + ' дней!*\n\n🚖 Клиенты скучают — ждём вас!\nКогда будете готовы — напишите *"на линию"*. 😊');
         await new Promise(r => setTimeout(r, 500));
       }
     } catch(e) { console.error('[Timer/longoffline]', e.message); }
@@ -110,10 +110,10 @@ const start = () => {
         const stats = await q.getDriverTodayStats(d.id).catch(() => null);
         if (stats && (stats.completed > 0 || stats.earned > 0)) {
           await wa.sendText(d.phone,
-            'Итоги дня, ' + d.full_name + '!\n\n' +
-            'Поездок: ' + (stats.completed||0) + '\n' +
-            'Заработано: ' + (stats.earned||0) + ' тг\n\n' +
-            'Спасибо за работу! До завтра.'
+            '🌙 *Итоги дня, ' + d.full_name + '!*\n\n' +
+            '🚖 Поездок: *' + (stats.completed||0) + '*\n' +
+            '💰 Заработано: *' + Number(stats.earned||0).toLocaleString() + ' тг*\n\n' +
+            '👏 Спасибо за работу! Отдыхайте. До завтра! 😴'
           );
           await new Promise(r => setTimeout(r, 500));
         }
