@@ -10,7 +10,8 @@ const { recognizeVoice } = require('../modules/voiceRecognizer');
 const { getGroqReply, parseScheduleTime } = require('../modules/smartReply');
 const { dailyGreeting } = require('../modules/greetingService');
 const favAddr = require('../modules/favoriteAddresses');
-const { getWeather, formatWeatherFull } = require('../modules/weatherService');
+const { getWeather, getWeatherForecast, formatWeatherFull, formatForecast } = require('../modules/weatherService');
+const { getCurrencyRates, getMetalPrices, getGrainPrices, formatCurrency, formatMetals, formatGrain } = require('../modules/infoService');
 
 const INTERCITY = [
   // Сёла Осакаровского района
@@ -265,11 +266,50 @@ const handle = async (phone, name, msg, session) => {
 
     if (!text || text.length < 2) { await wa.sendText(phone, '🚖 Напишите куда нужно ехать:'); return; }
 
-    // ─── ПОГОДА ───────────────────────────────────────────────
-    if (['погода','какая погода','прогноз','weather','ауа','ауа райы'].some(w => lo.includes(w))) {
-      const w = await getWeather().catch(() => null);
-      const wStr = formatWeatherFull(w);
-      await wa.sendText(phone, wStr || '🌡 Данные о погоде временно недоступны.\n\nНапишите куда ехать — найдём водителя! 🚖');
+    // ─── ПОГОДА СЕЙЧАС ────────────────────────────────────────
+    if (['погода','какая погода','weather','ауа','ауа райы'].some(w => lo === w || lo.startsWith(w))) {
+      const isWeek = ['неделю','неделя','прогноз','7 дней','forecast'].some(w => lo.includes(w));
+      if (isWeek) {
+        const fc = await getWeatherForecast(7).catch(() => null);
+        await wa.sendText(phone, formatForecast(fc, 7));
+      } else {
+        // сегодня + 3 дня
+        const [w, fc] = await Promise.all([
+          getWeather().catch(() => null),
+          getWeatherForecast(4).catch(() => null),
+        ]);
+        const today = formatWeatherFull(w) || '🌡 Данные недоступны.';
+        const forecastText = fc ? '\n\n' + formatForecast(fc, 4) : '';
+        await wa.sendText(phone, today + forecastText);
+      }
+      return;
+    }
+
+    // ─── ПРОГНОЗ НА НЕДЕЛЮ ────────────────────────────────────
+    if (['прогноз','погода на неделю','погода на 7','forecast'].some(w => lo.includes(w))) {
+      const fc = await getWeatherForecast(7).catch(() => null);
+      await wa.sendText(phone, formatForecast(fc, 7));
+      return;
+    }
+
+    // ─── КУРС ВАЛЮТ ───────────────────────────────────────────
+    if (['курс','доллар','валюта','usd','eur','рубль','юань','тенге к','обменник'].some(w => lo.includes(w))) {
+      const r = await getCurrencyRates().catch(() => null);
+      await wa.sendText(phone, formatCurrency(r));
+      return;
+    }
+
+    // ─── МЕТАЛЛЫ ──────────────────────────────────────────────
+    if (['золото','серебро','металл','xau','xag','слиток','платина'].some(w => lo.includes(w))) {
+      const r = await getMetalPrices().catch(() => null);
+      await wa.sendText(phone, formatMetals(r));
+      return;
+    }
+
+    // ─── ЗЕРНО / КОРМА ────────────────────────────────────────
+    if (['пшеница','зерно','кукуруза','корм','фуражный','шрот','урожай','сельхоз','агро'].some(w => lo.includes(w))) {
+      const r = await getGrainPrices().catch(() => null);
+      await wa.sendText(phone, formatGrain(r));
       return;
     }
 
@@ -281,7 +321,7 @@ const handle = async (phone, name, msg, session) => {
         '💰 *Цены:*\n• По посёлку от *500 тг*\n• До ЖД станции ~*1000 тг*\n• До Элеватора ~*700 тг*\n• 🌙 Ночной тариф с 23:00 до 07:00\n\n' +
         '🎁 *Бонусы:*\n• Каждая *10-я поездка — бесплатно!*\n• Пригласи друга → получи бесплатную поездку\n• Напиши *"мой код"* — узнать реферальный код\n\n' +
         '🏠 *Быстрые адреса:*\n• *"домой это [адрес]"* — сохранить дом\n• *"работа это [адрес]"* — сохранить работу\n• Потом просто *"домой"* или *"на работу"*\n\n' +
-        '🔍 *Команды:*\n• *"повтори"* — повторить маршрут\n• *"история"* — мои поездки\n• *"мой код"* — реферальный код\n• *"где [место]"* — адрес любого объекта\n• *"погода"* — текущая погода\n• *"услуги"* — все услуги сервиса\n\n' +
+        '🔍 *Команды:*\n• *"повтори"* — повторить маршрут\n• *"история"* — мои поездки\n• *"мой код"* — реферальный код\n• *"где [место]"* — адрес любого объекта\n• *"погода"* — сегодня + 3 дня\n• *"прогноз"* — погода на 7 дней\n• *"курс"* — курс валют USD/EUR/RUB\n• *"золото"* — цены на металлы\n• *"пшеница"* — мировые цены на зерно\n• *"услуги"* — все услуги сервиса\n\n' +
         '📞 *Работаем 24/7 — всегда на связи!*'
       );
       return;
@@ -337,7 +377,10 @@ const handle = async (phone, name, msg, session) => {
         '📦 Доставка — напишите *"доставка [что куда]"*\n' +
         '🔧 Мастер на час — напишите *"мастер [задача]"*\n' +
         '🚛 Аренда техники — напишите *"техника [что]"*\n' +
-        '🌤 Погода — напишите *"погода"*\n' +
+        '🌤 Погода/прогноз — *"погода"* / *"прогноз"*\n' +
+        '💱 Курс валют — напишите *"курс"*\n' +
+        '🥇 Металлы — напишите *"золото"*\n' +
+        '🌾 Зерно/корма — напишите *"пшеница"*\n' +
         '📋 Помощь — напишите *"faq"*\n\n' +
         '🚖 *Работаем 24/7. Всегда рядом!*'
       );

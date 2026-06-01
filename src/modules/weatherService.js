@@ -78,4 +78,97 @@ const formatWeatherBrief = (w) => {
   return `${icon} ${w.temp}°C, ${w.condition}`;
 };
 
-module.exports = { getWeather, formatWeatherForGroq, formatWeatherFull, formatWeatherBrief };
+// ─── ПРОГНОЗ НА 7 ДНЕЙ (Open-Meteo, без ключа) ─────────────
+// https://open-meteo.com — бесплатно, без регистрации
+const LAT = 50.5619, LON = 72.5681;
+let forecastCache = null, forecastCacheTime = 0;
+
+const WMO_ICONS = {
+  0:'☀️',1:'🌤',2:'⛅',3:'☁️',
+  45:'🌫',48:'🌫',
+  51:'🌦',53:'🌦',55:'🌧',61:'🌧',63:'🌧',65:'🌧',
+  71:'❄️',73:'❄️',75:'❄️',77:'🌨',
+  80:'🌦',81:'🌧',82:'⛈',
+  85:'❄️',86:'❄️',
+  95:'⛈',96:'⛈',99:'⛈',
+};
+const WMO_TEXT = {
+  0:'Ясно',1:'В основном ясно',2:'Переменная облачность',3:'Пасмурно',
+  45:'Туман',48:'Туман',
+  51:'Лёгкая морось',53:'Морось',55:'Сильная морось',
+  61:'Небольшой дождь',63:'Дождь',65:'Ливень',
+  71:'Небольшой снег',73:'Снег',75:'Снегопад',77:'Снежная крупа',
+  80:'Ливневый дождь',81:'Дождь',82:'Сильный ливень',
+  85:'Снежный ливень',86:'Сильный снежный ливень',
+  95:'Гроза',96:'Гроза с градом',99:'Сильная гроза',
+};
+
+const getWeatherForecast = async (days = 7) => {
+  if (forecastCache && Date.now() - forecastCacheTime < 3 * 60 * 60 * 1000) return forecastCache;
+  try {
+    const url = `https://api.open-meteo.com/v1/forecast?latitude=${LAT}&longitude=${LON}` +
+      `&daily=temperature_2m_max,temperature_2m_min,precipitation_sum,windspeed_10m_max,weathercode` +
+      `&current_weather=true&timezone=Asia%2FAlmaty&forecast_days=${days}`;
+    const data = await httpGet(url);
+    const d = data.daily;
+    const current = data.current_weather;
+    forecastCache = {
+      current: current ? {
+        temp: Math.round(current.temperature),
+        wind: Math.round(current.windspeed),
+        code: current.weathercode,
+        icon: WMO_ICONS[current.weathercode] || '🌡',
+        text: WMO_TEXT[current.weathercode] || 'Переменная',
+      } : null,
+      days: d.time.map((date, i) => ({
+        date,
+        max: Math.round(d.temperature_2m_max[i]),
+        min: Math.round(d.temperature_2m_min[i]),
+        rain: +(d.precipitation_sum[i] || 0).toFixed(1),
+        wind: Math.round(d.windspeed_10m_max[i]),
+        code: d.weathercode[i],
+        icon: WMO_ICONS[d.weathercode[i]] || '🌡',
+        text: WMO_TEXT[d.weathercode[i]] || '',
+      })),
+    };
+    forecastCacheTime = Date.now();
+    return forecastCache;
+  } catch(e) { console.error('[weatherForecast]', e.message); return null; }
+};
+
+const DAYS_RU = ['Вс','Пн','Вт','Ср','Чт','Пт','Сб'];
+const MONTHS_RU = ['янв','фев','мар','апр','май','июн','июл','авг','сен','окт','ноя','дек'];
+
+const formatForecast = (fc, daysCount = 7) => {
+  if (!fc) return '❌ Прогноз временно недоступен.';
+  const lines = ['🌤 *Прогноз погоды — Осакаровка*', ''];
+  if (fc.current) {
+    lines.push(`Сейчас: ${fc.current.icon} *${fc.current.temp}°C*, ${fc.current.text}, ветер ${fc.current.wind} км/ч`);
+    lines.push('');
+  }
+  fc.days.slice(0, daysCount).forEach(d => {
+    const dt  = new Date(d.date + 'T12:00:00');
+    const dow = DAYS_RU[dt.getDay()];
+    const dm  = dt.getDate() + ' ' + MONTHS_RU[dt.getMonth()];
+    const rain = d.rain > 0 ? ` 💧${d.rain}мм` : '';
+    lines.push(`${d.icon} *${dow} ${dm}:* ${d.min}…${d.max}°C${rain}`);
+  });
+  lines.push('');
+  lines.push('_Источник: Open-Meteo (обновляется каждые 3ч)_');
+  return lines.join('\n');
+};
+
+function httpGet(url) {
+  return new Promise((res, rej) => {
+    https.get(url, {
+      timeout: 12000,
+      headers: { 'User-Agent': 'OsakarovkaBot/1.0' }
+    }, r => {
+      let d = '';
+      r.on('data', c => d += c);
+      r.on('end', () => { try { res(JSON.parse(d)) } catch(e) { rej(e) } });
+    }).on('error', rej);
+  });
+}
+
+module.exports = { getWeather, getWeatherForecast, formatWeatherForGroq, formatWeatherFull, formatWeatherBrief, formatForecast };

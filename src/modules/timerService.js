@@ -179,6 +179,19 @@ const start = () => {
     } catch(e) { console.error('[Timer/monthly_admin]', e.message); }
   });
 
+  // Каждый день в 04:00 — обновление базы адресов через 2GIS (1 категория в день)
+  cron.schedule('0 4 * * *', async () => {
+    try {
+      const { execFile } = require('child_process');
+      const path = require('path');
+      const script = path.join(__dirname, '../../import_2gis_daily.js');
+      execFile('node', [script], { timeout: 120000 }, (err, stdout) => {
+        if (err) console.error('[Timer/2gis_daily]', err.message);
+        else console.log('[Timer/2gis_daily]', stdout.slice(0, 200));
+      });
+    } catch(e) { console.error('[Timer/2gis_daily]', e.message); }
+  });
+
   console.log('Timer service started');
 };
 
