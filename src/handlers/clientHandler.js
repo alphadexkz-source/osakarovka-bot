@@ -262,11 +262,12 @@ const handleNewOrder = async (phone, name, text, user) => {
     return;
   }
   const resolved = await resolveAddress(text).catch(() => ({ found: false }));
-  // Используем resolved.name только если он длиннее оригинала (обогащает адрес).
-  // Если пользователь добавил номер дома — оставляем его текст как есть.
-  const displayAddress = (resolved.found && resolved.name.length > text.trim().length)
-    ? resolved.name
-    : text.trim();
+  // resolved.name используем только если он содержит оригинальный текст (истинное обогащение).
+  // "школа" → "Средняя школа №2" (содержит "школа") → OK.
+  // "целинная 10" → "Целинная улица" (не содержит "целинная 10") → берём оригинал.
+  const enriched = resolved.found &&
+    resolved.name.toLowerCase().includes(text.trim().toLowerCase());
+  const displayAddress = enriched ? resolved.name : text.trim();
   const pi = await tariff.getPrice(text);
   const nightNote = pi.isNight ? ' (ночной тариф)' : '';
   const freeNote = user && (user.trip_count+1) % config.FREE_TRIP_EVERY === 0 ? '\nЭта поездка будет БЕСПЛАТНОЙ!' : '';
