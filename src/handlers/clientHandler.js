@@ -251,19 +251,10 @@ const handle = async (phone, name, msg, session) => {
         await wa.sendText(phone, '🎤 Распознаю голосовое сообщение...');
         const recognized = await recognizeVoice(mediaUrl);
         if (recognized && recognized.length >= 2) {
-          const smartR = getSmartReply(recognized);
-          if (smartR) { await wa.sendText(phone, smartR); return; }
-          if (isIntercity(recognized)) {
-            const active0 = await q.getActiveOrderByClient(phone);
-            if (!active0) { await q.setSession(phone, 'intercity_pickup', { destination: recognized }); await wa.sendText(phone, '🚗 Межгородская поездка!\n🏁 Куда: *' + recognized + '*\n\n📍 Откуда вас забрать?'); }
-            return;
-          }
-          const addr = await isAddress(recognized);
-          if (addr) { const user = await q.getUser(phone); return handleNewOrder(phone, name, recognized, user); }
-          const groqR = await getGroqReply(recognized).catch(() => null);
-          await wa.sendText(phone, groqR || '🚖 Напишите куда нужно ехать.');
-          return;
-        } else { await wa.sendText(phone, '🎤 Не удалось распознать. Напишите адрес текстом.'); return; }
+          return handle(phone, name, { text: recognized, type: 'text', buttonId: null, mediaUrl: null }, session);
+        }
+        await wa.sendText(phone, '🎤 Не удалось распознать. Напишите адрес текстом.');
+        return;
       }
       await wa.sendText(phone, '🚖 Напишите куда нужно ехать.');
       return;
