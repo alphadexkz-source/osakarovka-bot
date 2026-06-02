@@ -23,11 +23,11 @@ const parse = (body) => {
     case 'textMessage': text = String(messageData.textMessageData?.textMessage || ''); type = 'text'; break;
     case 'buttonsResponseMessage': buttonId = String(messageData.buttonsResponseMessage?.selectedButtonId || ''); text = String(messageData.buttonsResponseMessage?.selectedButtonDisplayText || ''); type = 'button'; break;
     case 'listResponseMessage': buttonId = String(messageData.listResponseMessage?.listResponseRowId || ''); text = String(messageData.listResponseMessage?.title || ''); type = 'button'; break;
-    case 'audioMessage': case 'pttMessage': mediaUrl = messageData.fileMessageData?.downloadUrl; type = 'voice'; break;
+    case 'audioMessage': case 'pttMessage': mediaUrl = messageData.fileMessageData?.downloadUrl || null; type = 'voice'; break;
     case 'imageMessage': mediaUrl = messageData.fileMessageData?.downloadUrl; text = String(messageData.fileMessageData?.caption || ''); type = 'image'; break;
     default: text = String(messageData.textMessageData?.textMessage || ''); type = 'other';
   }
-  return { phone, name, type, text: text.trim().slice(0, 500), buttonId, mediaUrl };
+  return { phone, name, type, text: text.trim().slice(0, 500), buttonId, mediaUrl, messageId: body.idMessage || null };
 };
 
 const route = async (body) => {
@@ -95,6 +95,8 @@ const route = async (body) => {
       const driver = await q.getDriver(phone);
       const status = driver?.status || 'offline';
       if (status === 'online' || status === 'busy') return driverHandler.handle(phone, msg, session);
+      // FIX: голосовые всегда идут в driverHandler (offline-водитель говорит «на линию» голосом)
+      if (msg.type === 'voice') return driverHandler.handle(phone, msg, session);
       // FIX: driver_as_client и cancel_reason — состояния водителя, не клиента
       const driverOnlyStates = ['driver_as_client', 'driver_chat', 'cancel_reason'];
       if (session?.state?.startsWith('reg_') ||

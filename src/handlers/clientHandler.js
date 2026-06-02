@@ -229,16 +229,16 @@ const handle = async (phone, name, msg, session) => {
     }
 
     if (type === 'voice') {
-      if (mediaUrl) {
+      if (mediaUrl || msg.messageId) {
         await wa.sendText(phone, '🎤 Распознаю голосовое сообщение...');
-        const recognized = await recognizeVoice(mediaUrl);
+        const recognized = await recognizeVoice(mediaUrl, phone, msg.messageId);
         if (recognized && recognized.length >= 2) {
           return handle(phone, name, { text: recognized, type: 'text', buttonId: null, mediaUrl: null }, session);
         }
-        await wa.sendText(phone, '🎤 Не удалось распознать. Напишите адрес текстом.');
+        await wa.sendText(phone, '🎤 Не удалось распознать голосовое. Напишите куда ехать текстом. 📝');
         return;
       }
-      await wa.sendText(phone, '🚖 Напишите куда нужно ехать.');
+      await wa.sendText(phone, '🚖 Напишите куда нужно ехать:');
       return;
     }
 

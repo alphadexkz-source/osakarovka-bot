@@ -31,8 +31,8 @@ const handle = async (phone, msg, session) => {
   try {
     // ГОЛОСОВОЕ
     if (type === 'voice') {
-      if (!mediaUrl) { await wa.sendText(phone, 'Не удалось получить голосовое. Напишите команду.'); return; }
-      const voiceText = await recognizeVoice(mediaUrl).catch(() => null);
+      if (!mediaUrl && !msg.messageId) { await wa.sendText(phone, 'Не удалось получить голосовое. Напишите команду.'); return; }
+      const voiceText = await recognizeVoice(mediaUrl, phone, msg.messageId).catch(() => null);
       if (!voiceText || voiceText.length < 2) { await wa.sendText(phone, 'Не удалось распознать. Напишите команду.'); return; }
       const vlo = voiceText.toLowerCase().trim();
       const driver2 = await q.getDriver(phone);
