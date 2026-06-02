@@ -391,6 +391,19 @@ const handle = async (phone, name, msg, session) => {
       return;
     }
 
+    // ─── ОТМЕНА В ЛЮБОМ СОСТОЯНИИ ────────────────────────────────
+    if (isCancel(lo)) {
+      const activeOrder = await q.getActiveOrderByClient(phone);
+      if (activeOrder) {
+        await orderEngine.cancel(activeOrder.id, 'Отменен клиентом');
+        await wa.sendText(phone, '❌ *Заказ отменён.*\n\nНапишите куда ехать — найдём водителя! 🚖');
+      } else {
+        await q.clearSession(phone);
+        await wa.sendText(phone, '❌ Нет активного заказа.\n\n🚖 Напишите куда нужно ехать.');
+      }
+      return;
+    }
+
     const shortcut = await favAddr.resolveShortcut(phone, lo).catch(() => null);
     if (shortcut) { const user = await q.getUser(phone); return handleNewOrder(phone, name, shortcut.address, user); }
     // Если написали «домой»/«үй» но адрес не сохранён — подсказываем

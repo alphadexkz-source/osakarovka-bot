@@ -21,6 +21,7 @@ const start = () => {
       ).then(r => r.rows).catch(() => []);
       for (const order of stuck) {
         await db.query(`UPDATE orders SET status='cancelled', cancel_reason='Нет водителей' WHERE id=$1`, [order.id]);
+        await db.query(`UPDATE sessions SET state='idle', ctx='{}' WHERE phone=$1`, [order.client_phone]);
         await wa.sendText(order.client_phone, '😔 *К сожалению, свободных водителей не нашлось.*\n\nПопробуйте заказать через несколько минут. 🚖');
       }
     } catch(e) { console.error('[Timer/stuck_orders]', e.message); }

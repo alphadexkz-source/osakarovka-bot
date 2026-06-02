@@ -44,6 +44,7 @@ const route = async (body) => {
 
     const session = await q.getSession(phone);
     const role = user?.role || 'new';
+    console.log(`[MSG] ${phone} role=${role} state=${session?.state||'idle'} type=${msg.type} text="${(msg.text||'').slice(0,40)}"`);
     const lo = (text||'').toLowerCase().trim();
 
     // АДМИН ПАНЕЛЬ

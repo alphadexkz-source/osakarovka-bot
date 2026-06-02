@@ -1,5 +1,12 @@
 require('dotenv').config();
 const express = require('express');
+
+process.on('uncaughtException', (err) => {
+  console.error('[UNCAUGHT EXCEPTION]', err.stack || err.message);
+});
+process.on('unhandledRejection', (reason) => {
+  console.error('[UNHANDLED REJECTION]', reason?.stack || reason);
+});
 const { route }  = require('./handlers/router');
 const { start: startTimers } = require('./modules/timerService');
 const config  = require('./config');
