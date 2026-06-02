@@ -44,7 +44,7 @@ const route = async (body) => {
 
     const session = await q.getSession(phone);
     const role = user?.role || 'new';
-    console.log(`[MSG] ${phone} role=${role} state=${session?.state||'idle'} type=${msg.type} text="${(msg.text||'').slice(0,40)}"`);
+    console.log(`[MSG] ${phone} role=${role} state=${session?.state||'idle'} type=${msg.type}`);
     const lo = (text||'').toLowerCase().trim();
 
     // АДМИН ПАНЕЛЬ
@@ -82,9 +82,11 @@ const route = async (body) => {
     if (role === 'new' || !user) {
       await q.createUser(phone, name, 'client');
       await q.setSession(phone, 'idle', {});
-      const greeting = await newClientGreeting(name, text).catch(() => null);
-      await wa.sendText(phone, greeting ||
-        'Добро пожаловать в еОсакаровка Сервис!\n\nНапишите куда нужно ехать — найдём водителя.\nКаждая 10-я поездка бесплатная!'
+      await wa.sendText(phone,
+        '🚖 Добро пожаловать в *еОсакаровка Сервис*!\n\n' +
+        'Такси по посёлку от *500 тг*, работаем *24/7*.\n\n' +
+        '📍 Просто напишите *куда нужно ехать* — найдём водителя!\n\n' +
+        '🎁 Каждая *10-я поездка* — бесплатно!'
       );
       const freshSession = await q.getSession(phone);
       return clientHandler.handle(phone, name, msg, freshSession || { state: 'idle', ctx: {} });

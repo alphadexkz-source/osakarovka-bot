@@ -84,6 +84,29 @@ const dispatch_queue = async (orderId, tried, circles) => {
   if (!driver) {
     const allOnline = await q.getOnlineDriversQueue();
     if (!allOnline.length || circles >= config.MAX_CIRCLES) {
+      // Перед отменой — уведомляем офлайн-водителей что есть заказ
+      if (!allOnline.length && circles === 0) {
+        const allDrivers = await q.getAllDrivers().catch(() => []);
+        const offlineWithBalance = allDrivers.filter(d => d.status === 'offline' && d.order_balance > 0);
+        for (const d of offlineWithBalance) {
+          await wa.sendText(d.phone,
+            '🚖 *Есть заказ!*\n\n📍 ' + order.destination + '\n💰 ' + order.price + ' тг\n\n' +
+            'Выйдите на линию — напишите *"на линию"*!'
+          ).catch(() => {});
+          await sleep(300);
+        }
+        // Даём 2 минуты на выход водителей
+        if (offlineWithBalance.length > 0) {
+          await sleep(120000);
+          const freshOrder = await q.getOrder(orderId);
+          if (!freshOrder || freshOrder.status !== 'searching') return;
+          const nowOnline = await q.getOnlineDriversQueue();
+          if (nowOnline.length) {
+            await dispatch_queue(orderId, [], 0);
+            return;
+          }
+        }
+      }
       await q.updateOrder(orderId, { status:'cancelled', cancel_reason:'no_drivers', cancelled_at: new Date() });
       await notify.clientNoDrivers(order.client_phone);
       await q.clearSession(order.client_phone);
@@ -140,13 +163,13 @@ const dispatch_first = async (order) => {
 };
 
 const accept = async (orderId, driverPhone) => {
-  clearTimer(acceptTimers, orderId);
   const order = await q.getOrder(orderId);
   if (!order || order.status !== 'searching') return { error: 'unavailable' };
   const driver = await q.getDriver(driverPhone);
   if (!driver) return { error: 'driver_not_found' };
   const accepted = await q.atomicAcceptOrder(orderId, driver.id);
   if (!accepted) return { error: 'already_taken' };
+  clearTimer(acceptTimers, orderId); // очищаем ПОСЛЕ успешного accept
   await q.setDriverStatus(driverPhone, 'busy');
   const mode = await q.getSetting('distribution_mode') || 'queue';
   if (mode === 'first') {
@@ -160,7 +183,8 @@ const accept = async (orderId, driverPhone) => {
   const t = setTimeout(async () => {
     try {
       arriveTimers.delete(orderId);
-      await wa.sendText(driverPhone, 'Прошло 12 минут — клиент всё ещё ждёт. Вы уже едете?');
+      await wa.sendText(driverPhone, '⏰ Прошло 12 минут — клиент всё ещё ждёт. Вы уже едете?');
+      await wa.sendText(order.client_phone, '⏳ *Водитель немного задерживается*, но уже едет к вам.\nЕсли нужно — напишите водителю.').catch(() => {});
     } catch(e) { console.error('[orderEngine/arrive_timer]', e.message); }
   }, config.ARRIVE_TIMEOUT_MS || 12 * 60 * 1000);
   arriveTimers.set(orderId, t);
@@ -204,10 +228,13 @@ const complete = async (orderId, driverPhone) => {
     try {
       const sess = await q.getSession(order.client_phone).catch(() => null);
       if (sess?.state === 'idle') {
-        await wa.sendText(order.client_phone,
-          '⭐ *Оцените поездку!*\n\nКак вам водитель *' + (driver?.full_name || 'водитель') + '*?\n\n' +
-          '1️⃣ — плохо · 2️⃣ — так себе · 3️⃣ — нормально\n4️⃣ — хорошо · 5️⃣ — отлично\n\n' +
-          'Напишите число *1–5* или *"пропустить"*'
+        await wa.sendButtons(order.client_phone,
+          '⭐ *Оцените поездку!*\n\nКак вам водитель *' + (driver?.full_name || 'водитель') + '*?',
+          [
+            { id: 'rating_5', text: '😊 Отлично' },
+            { id: 'rating_3', text: '😐 Нормально' },
+            { id: 'rating_1', text: '😞 Плохо' },
+          ]
         );
         await q.setSession(order.client_phone, 'waiting_rating', {
           order_id: orderId, driver_id: driver?.id
@@ -243,7 +270,16 @@ const cancel = async (orderId, reason = 'client') => {
   const order = await q.getOrder(orderId);
   if (!order) return;
   await q.updateOrder(orderId, { status:'cancelled', cancel_reason: reason, cancelled_at: new Date() });
-  await notify.clientCancelled(order.client_phone);
+  const cancelReasonMap = {
+    'no_drivers': 'Свободных водителей не нашлось',
+    'no_response': 'Водители не ответили',
+    'false_call': 'Ложный вызов',
+    'restart': 'Перезапуск системы',
+    'Клиент не вышел': 'Водитель не дождался клиента',
+    'Водитель не может доехать': 'Водитель не смог доехать',
+  };
+  const displayReason = cancelReasonMap[reason] || (reason && reason !== 'client' && reason !== 'Отменен клиентом' ? reason : '');
+  await notify.clientCancelled(order.client_phone, displayReason);
   await q.clearSession(order.client_phone);
   if (order.driver_phone) {
     await q.setDriverStatus(order.driver_phone, 'online');

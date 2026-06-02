@@ -27,6 +27,29 @@ const start = () => {
     } catch(e) { console.error('[Timer/stuck_orders]', e.message); }
   });
 
+  // Каждые 5 мин — предупреждение водителям перед авто-офлайн (за 5 мин до 30 мин бездействия)
+  cron.schedule('*/5 * * * *', async () => {
+    try {
+      const db = require('../db/index');
+      const warnThreshold = 25; // предупреждаем при 25 мин бездействия
+      const r = await db.query(`
+        SELECT u.phone, d.full_name FROM drivers d
+        JOIN users u ON d.user_id = u.id
+        WHERE d.status = 'online'
+          AND d.last_activity < NOW() - make_interval(mins => ${warnThreshold})
+          AND d.last_activity > NOW() - make_interval(mins => 28)
+      `);
+      for (const d of r.rows) {
+        await wa.sendText(d.phone,
+          '⚠️ *' + d.full_name + '*, вы неактивны 25 минут.\n\n' +
+          'Через *5 минут* автоматически уйдёте офлайн.\n\n' +
+          'Напишите что-нибудь или нажмите кнопку чтобы остаться на линии.'
+        ).catch(() => {});
+        await new Promise(r => setTimeout(r, 300));
+      }
+    } catch(e) { console.error('[Timer/inactivity_warn]', e.message); }
+  });
+
   // Каждый час — уведомление водителям кто давно ждёт без заказов
   cron.schedule('0 * * * *', async () => {
     try {

@@ -11,7 +11,9 @@ const clientSearching = async (phone, destination, price, isFree, freeReason) =>
 };
 
 const clientDriverFound = async (phone, driver) => {
-  const msg = `🚗 *Водитель найден!*\n\n👤 ${driver.full_name}\n🚙 ${driver.car_make}, ${driver.car_color}\n🔢 Номер: *${driver.car_plate}*\n⏱ Прибудет через *3–7 минут*`;
+  const carInfo = driver.car_make ? `${driver.car_make}, ${driver.car_color || '—'}` : 'уточните у водителя';
+  const plate   = driver.car_plate || 'не указан';
+  const msg = `🚗 *Водитель найден!*\n\n👤 ${driver.full_name}\n🚙 ${carInfo}\n🔢 Номер: *${plate}*\n⏱ Прибудет через *3–7 минут*`;
   if (driver.car_photo_url) await wa.sendImage(phone, driver.car_photo_url, msg);
   else await wa.sendText(phone, msg);
   await wa.sendButtons(phone, '⬇️ Ваши действия:', [
@@ -34,12 +36,22 @@ const clientCompleted = async (phone, price, isFree, destination) => {
   const freeLine  = isFree ? '\n🎉 *Эта поездка была бесплатной!*' : '';
   const bonusLine = (user?.bonus_trips > 0) ? `\n🎁 Бесплатных в запасе: *${user.bonus_trips}*` : '';
 
+  // Реферальный код — показываем каждые 5 поездок
+  let referralLine = '';
+  if (tripCount > 0 && tripCount % 5 === 0) {
+    try {
+      const q = require('../db/queries');
+      const code = await q.getOrCreateReferralCode(phone).catch(() => null);
+      if (code) referralLine = `\n\n🎁 *Пригласи друга:* код *${code}*\nДруг совершит 1 поездку → ты получишь бесплатную!`;
+    } catch(e) {}
+  }
+
   // Умное прощание через Groq
   try {
     const lang = user?.language || detectLanguage('');
     const farewell = await smartFarewell(user?.name || 'Клиент', lang, tripCount, isFree);
     if (farewell) {
-      await wa.sendText(phone, farewell + `\n\n📊 Поездок: *${tripCount}* | ⭐ До бесплатной: *${nextFree}*${bonusLine}`);
+      await wa.sendText(phone, farewell + `\n\n📊 Поездок: *${tripCount}* | ⭐ До бесплатной: *${nextFree}*${bonusLine}${referralLine}`);
       return;
     }
   } catch(e) { console.error('[clientCompleted:farewell]', e.message); }
@@ -50,7 +62,7 @@ const clientCompleted = async (phone, price, isFree, destination) => {
     `📊 *Ваша статистика:*\n` +
     `🚖 Поездок всего: *${tripCount}*\n` +
     `🎁 Бесплатных использовано: *${freeUsed}*${bonusLine}\n` +
-    `⭐ До следующей бесплатной: *${nextFree}*\n\n` +
+    `⭐ До следующей бесплатной: *${nextFree}*${referralLine}\n\n` +
     `*еОсакаровка Сервис* ждёт вас снова! 😊`
   );
 };

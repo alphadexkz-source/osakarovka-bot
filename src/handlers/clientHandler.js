@@ -141,9 +141,8 @@ const handle = async (phone, name, msg, session) => {
 
     // ─── ОЦЕНКА ПОЕЗДКИ ───────────────────────────────────────
     if (state === 'waiting_rating') {
-      const score = parseInt(lo);
-      if (score >= 1 && score <= 5) {
-        const ctx = session?.ctx || {};
+      const ctx = session?.ctx || {};
+      const saveRating = async (score) => {
         if (ctx.order_id && ctx.driver_id) {
           const client = await q.getUser(phone);
           await q.saveRating(ctx.order_id, client?.id, ctx.driver_id, score).catch(() => {});
@@ -153,18 +152,26 @@ const handle = async (phone, name, msg, session) => {
           await wa.sendText(phone, stars + ' *Спасибо за оценку!*\nВаш отзыв помогает нам стать лучше. 🙏');
           if (driver?.phone) {
             const praise = score >= 4 ? '💪 Продолжайте в том же духе!' : score <= 2 ? 'Постарайтесь улучшить сервис.' : '';
-            await wa.sendText(driver.phone, '📬 *Новая оценка от клиента:*\n\n' + stars + ' *' + score + ' из 5*\n\n' + praise).catch(() => {});
+            await wa.sendText(driver.phone, '📬 *Новая оценка:*\n\n' + stars + ' *' + score + '/5*\n\n' + praise).catch(() => {});
           }
         }
         await q.clearSession(phone);
-        return;
+      };
+      // Кнопки оценки (rating_5, rating_3, rating_1)
+      if (type === 'button' && buttonId?.startsWith('rating_')) {
+        const score = parseInt(buttonId.replace('rating_', ''));
+        if (score >= 1 && score <= 5) { await saveRating(score); return; }
       }
+      // Текстовый ввод числом
+      const score = parseInt(lo);
+      if (score >= 1 && score <= 5) { await saveRating(score); return; }
       if (['пропустить','не хочу','позже','skip','отмена','стоп'].some(w => lo.includes(w))) {
         await q.clearSession(phone);
         await wa.sendText(phone, '👌 Хорошо! Ждём вас снова. 🚖');
         return;
       }
-      await wa.sendText(phone, '⭐ Напишите число от *1 до 5:*\n\n1️⃣ — плохо\n2️⃣ — так себе\n3️⃣ — нормально\n4️⃣ — хорошо\n5️⃣ — отлично\n\nИли *"пропустить"*');
+      await wa.sendButtons(phone, '⭐ Как прошла поездка?',
+        [{ id:'rating_5', text:'😊 Отлично' }, { id:'rating_3', text:'😐 Нормально' }, { id:'rating_1', text:'😞 Плохо' }]);
       return;
     }
 
@@ -504,13 +511,11 @@ const handle = async (phone, name, msg, session) => {
     const user = await q.getUser(phone);
     const addr = await isAddress(text);
     if (!addr) {
-      // Приветствие и Groq — только если не адрес, чтобы не дропать заказ
-      const user2 = await q.getUser(phone);
       const today = new Date().toISOString().split('T')[0];
-      const lastSeen = user2?.last_seen_date ? String(user2.last_seen_date).split('T')[0] : null;
-      if (lastSeen !== today && (user2?.trip_count||0) >= 0) {
+      const lastSeen = user?.last_seen_date ? String(user.last_seen_date).split('T')[0] : null;
+      if (lastSeen !== today) {
         await q.updateUser(phone, { last_seen_date: new Date() }).catch(() => {});
-        const dayGreet = await dailyGreeting(name, text, user2?.trip_count||0).catch(() => null);
+        const dayGreet = await dailyGreeting(name, text, user?.trip_count||0).catch(() => null);
         if (dayGreet) { await wa.sendText(phone, dayGreet); return; }
       }
       const groqReply = await getGroqReply(text).catch(() => null);

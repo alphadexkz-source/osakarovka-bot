@@ -1,5 +1,10 @@
 require('dotenv').config();
 
+if (!process.env.ADMIN_PIN || !process.env.DRIVER_CODE) {
+  console.error('[Config] КРИТИЧНО: ADMIN_PIN и DRIVER_CODE обязательны в .env');
+  process.exit(1);
+}
+
 module.exports = {
   // Green API
   INSTANCE_ID:   process.env.GREEN_API_ID,
@@ -9,15 +14,15 @@ module.exports = {
   DATABASE_URL:  process.env.DATABASE_URL,
 
   // Bot
-  ADMIN_PIN:     process.env.ADMIN_PIN    || '1234',
-  DRIVER_CODE:   process.env.DRIVER_CODE  || 'TAXI2026',
+  ADMIN_PIN:     process.env.ADMIN_PIN,
+  DRIVER_CODE:   process.env.DRIVER_CODE,
   PORT:          parseInt(process.env.PORT) || 3000,
 
   // Timeouts (мс)
-  ACCEPT_TIMEOUT_MS:   60_000,   // 60 сек на принятие заказа
+  ACCEPT_TIMEOUT_MS:   40_000,   // 40 сек на принятие заказа (было 60)
   ARRIVE_TIMEOUT_MS:  720_000,   // 12 мин на «Прибыл»
   INACTIVITY_MS:    1_800_000,   // 30 мин → авто Офлайн
-  PAUSE_MS:          15_000,     // 15 сек пауза между водителями
+  PAUSE_MS:           3_000,     // 3 сек пауза между водителями (было 15)
 
   // Очередь
   MAX_CIRCLES:    3,             // кругов если 1 водитель
