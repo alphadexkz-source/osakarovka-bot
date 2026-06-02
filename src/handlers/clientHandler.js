@@ -539,8 +539,10 @@ const handleNewOrder = async (phone, name, text, user) => {
   }
   const resolved = await resolveAddress(text).catch(() => ({ found: false }));
   // resolved.name используем только если он содержит оригинальный текст (истинное обогащение).
-  const enriched = resolved.found &&
-    resolved.name.toLowerCase().includes(text.trim().toLowerCase());
+  const enriched = resolved.found && (
+    resolved.groqNormalized ||
+    resolved.name.toLowerCase().includes(text.trim().toLowerCase())
+  );
   const displayAddress = enriched ? resolved.name : text.trim();
   const pi = await tariff.getPrice(text);
   const nightNote = pi.isNight ? '\n🌙 *Ночной тариф*' : '';

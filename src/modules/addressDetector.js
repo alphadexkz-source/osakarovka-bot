@@ -160,7 +160,7 @@ const resolveAddress = async (text) => {
 
   // Groq gave us a normalized destination
   if (analysis.destination) {
-    return { found: true, name: analysis.destination, address: analysis.destination };
+    return { found: true, name: analysis.destination, address: analysis.destination, groqNormalized: true };
   }
 
   return { found: false, name: text, address: text };
