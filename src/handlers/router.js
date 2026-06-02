@@ -117,6 +117,8 @@ const route = async (body) => {
       const driver = await q.getDriver(phone);
       const status = driver?.status || 'offline';
       if (status === 'online' || status === 'busy') return driverHandler.handle(phone, msg, session);
+      // FIX: голос от офлайн-админа-водителя → driverHandler
+      if (msg.type === 'voice' && driver) return driverHandler.handle(phone, msg, session);
       // FIX: если админ-водитель в режиме driver_as_client — в driverHandler
       if (['driver_as_client', 'driver_chat', 'cancel_reason'].includes(session?.state) && driver)
         return driverHandler.handle(phone, msg, session);
