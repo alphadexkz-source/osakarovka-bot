@@ -146,7 +146,13 @@ destination — нормализованный адрес без лишних с
     });
 
     const toolCall = completion.choices[0]?.message?.tool_calls?.[0];
-    const analysis = toolCall ? JSON.parse(toolCall.function.arguments) : { is_address: false };
+    const raw = toolCall ? JSON.parse(toolCall.function.arguments) : { is_address: false };
+    // Groq иногда возвращает строку "true"/"false" вместо boolean — нормализуем
+    const analysis = {
+      ...raw,
+      is_address: raw.is_address === true || raw.is_address === 'true',
+      is_saved_place: ['home','work','none'].includes(raw.is_saved_place) ? raw.is_saved_place : 'none',
+    };
     cache.set(lo, analysis);
     setTimeout(() => cache.delete(lo), 3600000);
     return analysis;
