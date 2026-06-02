@@ -53,9 +53,11 @@ const handle = async (phone, msg, session) => {
       if (state.startsWith('reg_')) { return handleRegistration(phone, { ...msg, text: voiceText, type: 'text' }, state); }
       if (state.startsWith('edit_')) { return handleEdit(phone, { ...msg, text: voiceText, type: 'text' }, state); }
 
-      // Нормализация: убираем пунктуацию, исправляем падежи/формы которые путает Whisper
+      // Нормализация: убираем пунктуацию, исправляем формы которые путает Whisper
       const vlo = voiceText.toLowerCase().trim()
         .replace(/[.,!?;:]+/g, '')
+        .replace(/слини[йеяь]?/g, 'с линии')          // "Слини/Слиний" → "с линии"
+        .replace(/налин[иую][юй]?/g, 'на линию')       // "Налинию" → "на линию"
         .replace(/\bлинией\b/g, 'линии').replace(/\bлинею\b/g, 'линию')
         .replace(/\bсвободный\b|\bсвободна\b|\bсвободно\b/g, 'свободен')
         .replace(/\bприбыла\b|\bприбыло\b/g, 'прибыл')
