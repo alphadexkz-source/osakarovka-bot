@@ -62,15 +62,17 @@ const create = async (clientPhone, destination, priceInfo) => {
 
     // Уведомление если ищем долго (3 мин)
     setTimeout(async () => {
-      const fresh = await q.getOrder(order.id).catch(() => null);
-      if (fresh?.status === 'searching') {
-        await wa.sendText(clientPhone, '🔍 *Ещё ищем водителя...* Спасибо за терпение!\nКак только найдём — сразу сообщим! 🚖');
-      }
+      try {
+        const fresh = await q.getOrder(order.id).catch(() => null);
+        if (fresh?.status === 'searching') {
+          await wa.sendText(clientPhone, '🔍 *Ещё ищем водителя...* Спасибо за терпение!\nКак только найдём — сразу сообщим! 🚖');
+        }
+      } catch(e) { console.error('[orderEngine/3min_reminder]', e.message); }
     }, 3 * 60 * 1000);
 
     const mode = await q.getSetting('distribution_mode') || 'queue';
-    if (mode === 'first') dispatch_first(order);
-    else dispatch_queue(order.id, [], 0);
+    if (mode === 'first') dispatch_first(order).catch(e => console.error('[dispatch_first]', e.message));
+    else dispatch_queue(order.id, [], 0).catch(e => console.error('[dispatch_queue]', e.message));
     return order;
   } finally { creatingOrder.delete(clientPhone); }
 };
@@ -96,11 +98,13 @@ const dispatch_queue = async (orderId, tried, circles) => {
 
   // Таймер 60 секунд — не принял → рейтинг падает → следующий
   const timer = setTimeout(async () => {
-    acceptTimers.delete(orderId);
-    await penalizeSkip(driver.phone); // рейтинг падает
-    await q.moveDriverToEndOfQueue(driver.phone);
-    await sleep(config.PAUSE_MS);
-    await dispatch_queue(orderId, [...tried, driver.phone], circles);
+    try {
+      acceptTimers.delete(orderId);
+      await penalizeSkip(driver.phone);
+      await q.moveDriverToEndOfQueue(driver.phone);
+      await sleep(config.PAUSE_MS);
+      await dispatch_queue(orderId, [...tried, driver.phone], circles);
+    } catch(e) { console.error('[orderEngine/accept_timer]', e.message); }
   }, config.ACCEPT_TIMEOUT_MS || 60000);
 
   acceptTimers.set(orderId, { timer, driverPhone: driver.phone });
@@ -154,8 +158,10 @@ const accept = async (orderId, driverPhone) => {
   await notify.driverAccepted(driverPhone, updated);
   // Уведомление если водитель долго едет к клиенту (12 мин)
   const t = setTimeout(async () => {
-    arriveTimers.delete(orderId);
-    await wa.sendText(driverPhone, 'Прошло 12 минут — клиент всё ещё ждёт. Вы уже едете?');
+    try {
+      arriveTimers.delete(orderId);
+      await wa.sendText(driverPhone, 'Прошло 12 минут — клиент всё ещё ждёт. Вы уже едете?');
+    } catch(e) { console.error('[orderEngine/arrive_timer]', e.message); }
   }, config.ARRIVE_TIMEOUT_MS || 12 * 60 * 1000);
   arriveTimers.set(orderId, t);
   return { success: true };
@@ -194,23 +200,20 @@ const complete = async (orderId, driverPhone) => {
   await q.setSession(order.client_phone, 'idle', {});
 
   // Запрос оценки через 4 секунды (после прочтения прощания)
-  const capturedDriver = driver;
-  const capturedOrderId = orderId;
-  const capturedClientPhone = order.client_phone;
   setTimeout(async () => {
     try {
-      const sess = await q.getSession(capturedClientPhone).catch(() => null);
+      const sess = await q.getSession(order.client_phone).catch(() => null);
       if (sess?.state === 'idle') {
-        await wa.sendText(capturedClientPhone,
-          '⭐ *Оцените поездку!*\n\nКак вам водитель *' + (capturedDriver?.full_name || 'водитель') + '*?\n\n' +
+        await wa.sendText(order.client_phone,
+          '⭐ *Оцените поездку!*\n\nКак вам водитель *' + (driver?.full_name || 'водитель') + '*?\n\n' +
           '1️⃣ — плохо · 2️⃣ — так себе · 3️⃣ — нормально\n4️⃣ — хорошо · 5️⃣ — отлично\n\n' +
           'Напишите число *1–5* или *"пропустить"*'
         );
-        await q.setSession(capturedClientPhone, 'waiting_rating', {
-          order_id: capturedOrderId, driver_id: capturedDriver?.id
+        await q.setSession(order.client_phone, 'waiting_rating', {
+          order_id: orderId, driver_id: driver?.id
         });
       }
-    } catch(e) { console.error('[rating request]', e.message); }
+    } catch(e) { console.error('[orderEngine/rating_request]', e.message); }
   }, 4000);
 
   const result = await driverMgr.afterTrip(driverPhone, driver?.id, order.is_free);
