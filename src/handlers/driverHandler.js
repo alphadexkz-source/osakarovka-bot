@@ -38,8 +38,32 @@ const handle = async (phone, msg, session) => {
     if (type === 'voice') {
       if (!mediaUrl) { await wa.sendText(phone, '🎙 Голосовое не получено. Напишите команду.'); return; }
       const voiceText = await recognizeVoice(mediaUrl).catch(() => null);
-      if (!voiceText || voiceText.length < 2) { await wa.sendText(phone, 'Не удалось распознать. Напишите команду.'); return; }
-      const vlo = voiceText.toLowerCase().trim();
+      if (!voiceText || voiceText.length < 2) { await wa.sendText(phone, '🎤 Не удалось распознать. Напишите команду.'); return; }
+
+      // Голос в режиме «водитель как клиент» → обработка как адрес/текст клиента
+      if (state === 'driver_as_client') {
+        return handleAsClient(phone, { ...msg, text: voiceText, type: 'text' }, session);
+      }
+      // Голос во время фото → нельзя голосом, нужно фото
+      if (state === 'reg_photo' || state === 'edit_photo') {
+        await wa.sendText(phone, '📸 Для этого шага отправьте ФОТО автомобиля.');
+        return;
+      }
+      // Голос во время регистрации/редактирования → текстовый ввод данных
+      if (state.startsWith('reg_')) { return handleRegistration(phone, { ...msg, text: voiceText, type: 'text' }, state); }
+      if (state.startsWith('edit_')) { return handleEdit(phone, { ...msg, text: voiceText, type: 'text' }, state); }
+
+      // Нормализация: убираем пунктуацию, исправляем падежи/формы которые путает Whisper
+      const vlo = voiceText.toLowerCase().trim()
+        .replace(/[.,!?;:]+/g, '')
+        .replace(/\bлинией\b/g, 'линии').replace(/\bлинею\b/g, 'линию')
+        .replace(/\bсвободный\b|\bсвободна\b|\bсвободно\b/g, 'свободен')
+        .replace(/\bприбыла\b|\bприбыло\b/g, 'прибыл')
+        .replace(/\bложная\b|\bложное\b/g, 'ложный')
+        .replace(/\bпринято\b|\bприняла\b|\bпринятый\b/g, 'принял')
+        .replace(/\bдоехала\b/g, 'доехали').replace(/\bзавершила\b/g, 'завершил')
+        .trim();
+
       const driver2 = await q.getDriver(phone);
       if (driver2?.status === 'busy') {
         const order2 = await q.getActiveOrderByDriver(phone);
@@ -57,13 +81,13 @@ const handle = async (phone, msg, session) => {
         if (r2.error === 'no_balance') { await wa.sendText(phone, 'Баланс = 0. Обратитесь к администратору.'); return; }
         const pos2 = await q.getDriverQueuePosition(phone);
         const cnt2 = (await q.getOnlineDriversQueue()).length;
-        await wa.sendText(phone, 'Вы на линии! ' + pos2 + '-й из ' + cnt2 + ' водителей.');
+        await wa.sendText(phone, '🟢 *Вы на линии!*\n📋 Позиция: *' + pos2 + '-й* из *' + cnt2 + '* водителей.');
         return;
       }
-      if (match(vlo, KW.OFFLINE)) { await driverMgr.goOffline(phone); await wa.sendText(phone, 'Ушли с линии. Отдыхайте!'); return; }
+      if (match(vlo, KW.OFFLINE)) { await driverMgr.goOffline(phone); await wa.sendText(phone, '⚫ Ушли с линии. Отдыхайте!'); return; }
       if (match(vlo, KW.STATS))   { const stats2 = await q.getDriverTodayStats(driver2?.id); await notify.driverStats(phone, driver2, stats2); return; }
       const groqVoice = await getGroqDriverReply(voiceText, driver2?.full_name, null, { status: driver2?.status }).catch(() => null);
-      await wa.sendText(phone, groqVoice || 'Вы сказали: "' + voiceText + '"\n\nКоманды: принял, прибыл, свободен, ложный, на линию, с линии, статистика');
+      await wa.sendText(phone, groqVoice || '🎤 Сказано: *"' + voiceText + '"*\n\nКоманды: *принял, прибыл, свободен, ложный, на линию, с линии, статистика*');
       return;
     }
 

@@ -118,7 +118,17 @@ const handle = async (phone, name, msg, session) => {
       await wa.sendText(phone, '🎤 Распознаю голосовое сообщение...');
       const recognized = await recognizeVoice(mediaUrl);
       if (recognized && recognized.length >= 2) {
-        return handle(phone, name, { ...msg, text: recognized, type: 'text', mediaUrl: null }, session);
+        // Если ждём оценку — конвертируем числа словами в цифры
+        let voiceText = recognized;
+        if (state === 'waiting_rating') {
+          const NUMS = {
+            'один':1,'одна':1,'два':2,'две':2,'три':3,'четыре':4,'пять':5,
+            'бір':1,'екі':2,'үш':3,'төрт':4,'бес':5,'one':1,'two':2,'three':3,'four':4,'five':5,
+          };
+          const k = recognized.toLowerCase().trim().replace(/[.,!?]/g, '');
+          if (NUMS[k]) voiceText = String(NUMS[k]);
+        }
+        return handle(phone, name, { ...msg, text: voiceText, type: 'text', mediaUrl: null }, session);
       }
       await wa.sendText(phone, '🎤 Не удалось распознать. Напишите текстом. 📝');
       return;
