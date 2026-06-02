@@ -33,9 +33,10 @@ const INTERCITY = [
 ];
 
 const isIntercity = (text) => INTERCITY.some(w => (text||'').toLowerCase().includes(w));
-const CANCEL  = ['отмена','cancel','нет','жок','стоп','назад','выход','отменить','не надо'];
+const CANCEL_EXACT    = ['нет','жок','стоп','нет.','жоқ'];
+const CANCEL_CONTAINS = ['отмена','cancel','назад','выход','отменить','не надо'];
 const CONFIRM = ['да','ok','ок','yes','подтверждаю','поехали','ия','иа'];
-const isCancel  = (lo) => CANCEL.some(w => lo === w || lo.includes(w));
+const isCancel  = (lo) => CANCEL_EXACT.some(w => lo === w) || CANCEL_CONTAINS.some(w => lo === w || lo.includes(w));
 const isConfirm = (lo) => CONFIRM.some(w => lo === w);
 
 const getSmartReply = (text) => {
@@ -200,15 +201,6 @@ const handle = async (phone, name, msg, session) => {
     }
 
     if (state === 'intercity_confirm') {
-      if (type === 'voice' && mediaUrl) {
-        const recognized = await recognizeVoice(mediaUrl).catch(() => '');
-        const rlo = (recognized||'').toLowerCase().trim();
-        if (['да','иа','поехали','подтверждаю','везите'].some(w => rlo.includes(w))) {
-          const f = await q.getSession(phone);
-          if (f?.ctx) await orderEngine.create(phone, f.ctx.destination, { price: f.ctx.price, pickup_address: f.ctx.pickup, is_intercity: true });
-          return;
-        }
-      }
       if (isCancel(lo)) { await q.clearSession(phone); await wa.sendText(phone, 'Отменено. Напишите куда ехать.'); return; }
       if (isConfirm(lo)) {
         const ctx = session?.ctx || {};
@@ -219,16 +211,6 @@ const handle = async (phone, name, msg, session) => {
     }
 
     if (state === 'confirming') {
-      if (type === 'voice' && mediaUrl) {
-        const recognized = await recognizeVoice(mediaUrl).catch(() => '');
-        const rlo = (recognized||'').toLowerCase().trim();
-        if (['да','иа','поехали','везите','едем'].some(w => rlo.includes(w))) {
-          const f = await q.getSession(phone);
-          if (f?.state === 'confirming') { const { destination, price, tariff_id } = f.ctx; await orderEngine.create(phone, destination, { price, tariff: tariff_id ? { id: tariff_id } : null }); }
-          return;
-        }
-        if (isCancel(rlo)) { await q.clearSession(phone); await wa.sendText(phone, 'Отменено. Напишите куда ехать.'); return; }
-      }
       if (isConfirm(lo)) {
         const f = await q.getSession(phone);
         if (!f || f.state !== 'confirming') return;
