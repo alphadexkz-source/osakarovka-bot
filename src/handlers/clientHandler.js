@@ -109,6 +109,21 @@ const handle = async (phone, name, msg, session) => {
   try {
     if (type === 'button' && buttonId) return await handleButton(phone, buttonId, session);
 
+    // ─── ГОЛОС — обрабатываем ПЕРВЫМ во всех состояниях ──────────
+    if (type === 'voice') {
+      if (mediaUrl || msg.messageId) {
+        await wa.sendText(phone, '🎤 Распознаю голосовое сообщение...');
+        const recognized = await recognizeVoice(mediaUrl, phone, msg.messageId);
+        if (recognized && recognized.length >= 2) {
+          return handle(phone, name, { ...msg, text: recognized, type: 'text', mediaUrl: null }, session);
+        }
+        await wa.sendText(phone, '🎤 Не удалось распознать. Напишите текстом. 📝');
+        return;
+      }
+      await wa.sendText(phone, '🚖 Напишите куда нужно ехать:');
+      return;
+    }
+
     if (state === 'chat_mode') {
       if (lo === 'стоп') { const order = await q.getActiveOrderByClient(phone); await q.setSession(phone, order ? 'in_trip' : 'idle', {}); await wa.sendText(phone, '💬 Чат завершён.'); return; }
       return chatRelay.fromClient(phone, text);
@@ -225,20 +240,6 @@ const handle = async (phone, name, msg, session) => {
           '🚖 *Ваш заказ:*\n\n📍 Куда: *' + f.ctx.destination + '*\n💰 Цена: *' + f.ctx.price + ' тг*\n\nВсё верно?',
           [{ id:'confirm_order', text:'✅ Да, поехали!' }, { id:'cancel_new', text:'❌ Отмена' }]);
       }
-      return;
-    }
-
-    if (type === 'voice') {
-      if (mediaUrl || msg.messageId) {
-        await wa.sendText(phone, '🎤 Распознаю голосовое сообщение...');
-        const recognized = await recognizeVoice(mediaUrl, phone, msg.messageId);
-        if (recognized && recognized.length >= 2) {
-          return handle(phone, name, { text: recognized, type: 'text', buttonId: null, mediaUrl: null }, session);
-        }
-        await wa.sendText(phone, '🎤 Не удалось распознать голосовое. Напишите куда ехать текстом. 📝');
-        return;
-      }
-      await wa.sendText(phone, '🚖 Напишите куда нужно ехать:');
       return;
     }
 
