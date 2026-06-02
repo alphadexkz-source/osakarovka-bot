@@ -10,7 +10,7 @@ const getGroq = () => {
   return groq;
 };
 
-const recognizeVoice = async (audioUrl, phone, messageId) => {
+const recognizeVoice = async (audioUrl) => {
   let tmpFile = null;
   try {
     if (!audioUrl) {
@@ -20,8 +20,7 @@ const recognizeVoice = async (audioUrl, phone, messageId) => {
 
     console.log('[voiceRecognizer] downloading:', audioUrl.slice(0, 80));
 
-    // Скачиваем файл
-    const response = await axios.get(downloadUrl, {
+    const response = await axios.get(audioUrl, {
       responseType: 'arraybuffer',
       timeout: 20000,
       headers: { 'User-Agent': 'Mozilla/5.0' },
@@ -35,14 +34,12 @@ const recognizeVoice = async (audioUrl, phone, messageId) => {
       return null;
     }
 
-    // Сохраняем во временный файл
     const ext = audioUrl.includes('.mp4') ? 'mp4'
                : audioUrl.includes('.mp3') ? 'mp3'
                : 'ogg';
     tmpFile = path.join(os.tmpdir(), `voice_${Date.now()}.${ext}`);
     fs.writeFileSync(tmpFile, Buffer.from(response.data));
 
-    // Отправляем в Groq Whisper
     const raw = await getGroq().audio.transcriptions.create({
       file: fs.createReadStream(tmpFile),
       model: 'whisper-large-v3',
@@ -50,7 +47,6 @@ const recognizeVoice = async (audioUrl, phone, messageId) => {
       response_format: 'text',
     });
 
-    // Groq SDK может вернуть string или { text: "..." }
     const result = typeof raw === 'string' ? raw.trim() : (raw?.text || '').trim();
     console.log('[voiceRecognizer] result:', result?.slice(0, 80) || '(empty)');
     return result || null;

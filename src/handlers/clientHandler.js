@@ -111,16 +111,16 @@ const handle = async (phone, name, msg, session) => {
 
     // ─── ГОЛОС — обрабатываем ПЕРВЫМ во всех состояниях ──────────
     if (type === 'voice') {
-      if (mediaUrl || msg.messageId) {
-        await wa.sendText(phone, '🎤 Распознаю голосовое сообщение...');
-        const recognized = await recognizeVoice(mediaUrl, phone, msg.messageId);
-        if (recognized && recognized.length >= 2) {
-          return handle(phone, name, { ...msg, text: recognized, type: 'text', mediaUrl: null }, session);
-        }
-        await wa.sendText(phone, '🎤 Не удалось распознать. Напишите текстом. 📝');
+      if (!mediaUrl) {
+        await wa.sendText(phone, '🚖 Напишите куда нужно ехать:');
         return;
       }
-      await wa.sendText(phone, '🚖 Напишите куда нужно ехать:');
+      await wa.sendText(phone, '🎤 Распознаю голосовое сообщение...');
+      const recognized = await recognizeVoice(mediaUrl);
+      if (recognized && recognized.length >= 2) {
+        return handle(phone, name, { ...msg, text: recognized, type: 'text', mediaUrl: null }, session);
+      }
+      await wa.sendText(phone, '🎤 Не удалось распознать. Напишите текстом. 📝');
       return;
     }
 
