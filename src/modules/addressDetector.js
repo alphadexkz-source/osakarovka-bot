@@ -37,8 +37,8 @@ const TOOLS = [{
         },
         is_saved_place: {
           type: 'string',
-          enum: ['home', 'work'],
-          description: '"домой"/"дом" → home, "на работу"/"работа" → work',
+          enum: ['home', 'work', 'none'],
+          description: '"домой"/"дом" → home, "на работу"/"работа" → work, иначе none',
         },
         comment: {
           type: 'string',
