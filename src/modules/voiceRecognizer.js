@@ -10,43 +10,15 @@ const getGroq = () => {
   return groq;
 };
 
-// Получить прямую ссылку для скачивания через Green API downloadFile
-const getDownloadUrl = async (directUrl, phone, messageId) => {
-  if (messageId && process.env.GREEN_API_ID && process.env.GREEN_API_TOKEN) {
-    try {
-      const chatId = `${phone}@c.us`;
-      const resp = await axios.post(
-        `https://api.green-api.com/waInstance${process.env.GREEN_API_ID}/downloadFile/${process.env.GREEN_API_TOKEN}`,
-        { chatId, idMessage: messageId },
-        { timeout: 15000 }
-      );
-      if (resp.data?.downloadUrl) {
-        console.log('[voiceRecognizer] got downloadUrl via API');
-        return resp.data.downloadUrl;
-      }
-    } catch (e) {
-      console.warn('[voiceRecognizer] downloadFile API failed, using direct url:', e.message);
-    }
-  }
-  return directUrl;
-};
-
 const recognizeVoice = async (audioUrl, phone, messageId) => {
   let tmpFile = null;
   try {
-    if (!audioUrl && !messageId) {
-      console.error('[voiceRecognizer] no audioUrl and no messageId');
+    if (!audioUrl) {
+      console.error('[voiceRecognizer] no audioUrl');
       return null;
     }
 
-    // Получаем актуальную ссылку
-    const downloadUrl = await getDownloadUrl(audioUrl, phone, messageId);
-    if (!downloadUrl) {
-      console.error('[voiceRecognizer] no downloadUrl');
-      return null;
-    }
-
-    console.log('[voiceRecognizer] downloading:', downloadUrl.slice(0, 80));
+    console.log('[voiceRecognizer] downloading:', audioUrl.slice(0, 80));
 
     // Скачиваем файл
     const response = await axios.get(downloadUrl, {
@@ -64,8 +36,8 @@ const recognizeVoice = async (audioUrl, phone, messageId) => {
     }
 
     // Сохраняем во временный файл
-    const ext = downloadUrl.includes('.mp4') ? 'mp4'
-               : downloadUrl.includes('.mp3') ? 'mp3'
+    const ext = audioUrl.includes('.mp4') ? 'mp4'
+               : audioUrl.includes('.mp3') ? 'mp3'
                : 'ogg';
     tmpFile = path.join(os.tmpdir(), `voice_${Date.now()}.${ext}`);
     fs.writeFileSync(tmpFile, Buffer.from(response.data));
