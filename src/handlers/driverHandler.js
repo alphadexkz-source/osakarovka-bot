@@ -154,6 +154,19 @@ const handle = async (phone, msg, session) => {
 
     if (match(lo, KW.STATS)) { const stats = await q.getDriverTodayStats(driver.id); await notify.driverStats(phone, driver, stats); return; }
 
+    // ─── МОЙ РЕФЕРАЛЬНЫЙ КОД (для водителей) ─────────────────
+    if (['мой код','реферал','пригласить','мой реферал','реферальный код'].some(w => lo.includes(w))) {
+      const code = await q.getOrCreateReferralCode(phone).catch(() => null);
+      if (!code) { await wa.sendText(phone, '❌ Не удалось получить код.'); return; }
+      await wa.sendText(phone,
+        '🤝 *Ваш реферальный код для водителей:*\n\n' +
+        '🔑 *' + code + '*\n\n' +
+        'Когда новый водитель введёт ваш код при регистрации — вы получите *+20 заказов* к балансу!\n\n' +
+        'Поделитесь кодом с теми кто хочет работать в такси.'
+      );
+      return;
+    }
+
     if (match(lo, KW.QUEUE)) {
       if (driver.status !== 'online') {
         await wa.sendText(phone, '⚫ Вы не на линии.\nНапишите *"на линию"* чтобы начать работу.');
@@ -311,6 +324,37 @@ const handleRegistration = async (phone, msg, state) => {
     case 'reg_plate': if (!text || text.length < 2) { await wa.sendText(phone, 'Введите номер:'); return; } await q.updateDriver(phone, { car_plate: text.trim().toUpperCase().slice(0, 20) }); await q.setSession(phone, 'reg_color', {}); await wa.sendText(phone, 'Номер: ' + text.trim().toUpperCase() + '\n\nШаг 5/5: Цвет авто:'); break;
     case 'reg_color': if (!text || text.length < 2) { await wa.sendText(phone, 'Введите цвет:'); return; }
       await q.updateDriver(phone, { car_color: text.trim().slice(0, 50) });
+      await q.setSession(phone, 'reg_referral', {});
+      await wa.sendText(phone,
+        'Цвет: *' + text.trim() + '*\n\n' +
+        '🎁 *Бонусный шаг!*\n\n' +
+        'Вас кто-то пригласил в нашу команду?\n' +
+        'Введите *реферальный код* пригласившего водителя — он получит *+20 заказов* как бонус!\n\n' +
+        '📌 Или напишите *"пропустить"* если кода нет.'
+      );
+      break;
+    case 'reg_referral': {
+      const lo = (text||'').toLowerCase().trim();
+      if (!['пропустить','пропуск','skip','нет'].includes(lo) && text && text.length >= 3) {
+        // Ищем водителя по реферальному коду
+        const referrerUser = await q.getUserByReferralCode(text.trim().toUpperCase()).catch(() => null);
+        if (referrerUser && referrerUser.role === 'driver') {
+          const result = await q.addDriverBalance(referrerUser.phone, 20).catch(() => null);
+          if (result) {
+            await q.addBillingRecord(result.id, 20, result.order_balance, 'Реферальный бонус: новый водитель', null).catch(() => {});
+            await wa.sendText(referrerUser.phone,
+              '🎉 *По вашему коду зарегистрировался новый водитель!*\n\n' +
+              '🎁 Вам начислено *+20 заказов* к балансу!\n' +
+              '📦 Текущий баланс: *' + (result.order_balance >= 999999 ? '∞' : result.order_balance) + '*\n\n' +
+              'Приглашайте больше — зарабатывайте больше! 💪'
+            ).catch(() => {});
+            await wa.sendText(phone, '🎁 *Реферальный бонус применён!*\nВаш пригласитель получил +20 заказов. Спасибо!');
+          }
+        } else {
+          await wa.sendText(phone, '❌ Код не найден. Продолжаем без реферала.');
+        }
+      }
+      // Завершаем регистрацию
       await q.clearSession(phone);
       const d = await q.getDriver(phone);
       if (!d) { await wa.sendText(phone, '✅ Регистрация завершена! Напишите *"на линию"* чтобы начать.'); break; }
@@ -330,9 +374,12 @@ const handleRegistration = async (phone, msg, state) => {
         '🔢 *очередь* — ваша позиция\n' +
         '❓ *faq* — полная инструкция\n\n' +
         '🎙 *Все команды работают голосом!*\n\n' +
+        '🤝 *Пригласи друга-водителя — получи +20 заказов!*\n' +
+        'Твой реферальный код: узнай командой *"мой код"*\n\n' +
         'Напишите *"на линию"* чтобы начать! 🚖'
       );
       break;
+    }
   }
 };
 
