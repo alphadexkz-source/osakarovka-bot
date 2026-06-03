@@ -7,6 +7,7 @@ const { getGroqDriverReply } = require('../modules/smartReply')
 const { recognizeVoice } = require('../modules/voiceRecognizer')
 const { detectVoiceIntent } = require('../modules/voiceCommands')
 const log = require('../logger')
+const { driverTest } = require('../modules/testLogger')
 
 const KW = {
   ONLINE:  ['на линию','линию','выхожу','начинаю','работаю','онлайн','старт','начать','работать',
@@ -211,6 +212,7 @@ const handleVoice = async (phone, mediaUrl, session) => {
 
   const result = detectVoiceIntent(corrected)
   log.msg(phone, 'driver', state, 'voice', voiceText + ' → ' + result.intent)
+  driverTest(phone, 'Голосовая команда', voiceText)
 
   // ─── В поездке — заказ запрашивается лениво, только когда нужен ──
   if (result.intent === 'arrived') {

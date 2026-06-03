@@ -1,6 +1,7 @@
 const wa = require('../whatsapp/greenApi')
 const q = require('../db/queries')
 const orderEngine = require('../modules/orderEngine')
+const { driverTest } = require('../modules/testLogger')
 
 const KW = {
   ARRIVED: ['прибыл','приехал','на месте','подъехал','жду','стою','стоянка',
@@ -27,7 +28,7 @@ const handleBusyCommands = async (phone, lo, order) => {
 const handleAcceptSkip = async (phone, lo) => {
   if (match(lo, KW.ACCEPT)) {
     const pending = await q.getPendingOrderForDriver(phone)
-    if (pending) await orderEngine.accept(pending.id, phone)
+    if (pending) { driverTest(phone, 'Принял заказ'); await orderEngine.accept(pending.id, phone) }
     else await wa.sendText(phone, 'Нет активного предложения.')
     return true
   }
