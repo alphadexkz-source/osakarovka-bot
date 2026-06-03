@@ -48,7 +48,8 @@ const recognizeVoice = async (audioUrl) => {
     });
 
     const result = typeof raw === 'string' ? raw.trim() : (raw?.text || '').trim();
-    console.log('[voiceRecognizer] result:', result?.slice(0, 80) || '(empty)');
+    const ts = new Date().toLocaleTimeString('ru-RU', { timeZone: 'Asia/Almaty' });
+    console.log(`[VOICE ${ts}] ${result?.slice(0, 100) || '(пусто)'}`);
     return result || null;
 
   } catch (err) {
