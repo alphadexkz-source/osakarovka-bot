@@ -19,6 +19,12 @@ const getDriverById = async (id) => {
   return r.rows[0]
 }
 
+const isFullyRegisteredDriver = async (phone) => {
+  const driver = await getDriver(phone)
+  if (!driver) return false
+  return !!(driver.full_name && driver.car_plate && driver.car_make)
+}
+
 const createDriver = async (userId) => {
   const r = await db.query(
     `INSERT INTO drivers(user_id,order_balance) VALUES($1,999999)
@@ -187,6 +193,7 @@ const getExpiredBreaks = async () => {
 module.exports = {
   getDriver,
   getDriverById,
+  isFullyRegisteredDriver,
   createDriver,
   updateDriver,
   setDriverStatus,

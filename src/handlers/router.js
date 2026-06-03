@@ -172,7 +172,7 @@ const route = async (body) => {
       }
 
       // Неполная регистрация — перенаправляем если не в процессе reg_
-      if (!inReg && (!driver || !driver.full_name || !driver.car_plate)) {
+      if (!inReg && !(await q.isFullyRegisteredDriver(phone))) {
         await wa.sendText(phone, '⚠️ Завершите регистрацию водителя.\nОтправьте код водителя снова или обратитесь к администратору.');
         return;
       }
