@@ -5,15 +5,13 @@ const orderEngine = require('../modules/orderEngine')
 const chatRelay = require('../modules/chatRelay')
 const tariff = require('../modules/tariffEngine')
 const { transcribe: transcribeVoice } = require('../modules/voiceCommandHandler')
-const { detectVoiceIntent } = require('../modules/voiceCommands')
-const { getGroqDriverReply } = require('../modules/smartReply')
 const driverRegistrationHandler = require('./driverRegistrationHandler')
 const driverOrderHandler = require('./driverOrderHandler')
 const driverCommandHandler = require('./driverCommandHandler')
 
 const log = require('../logger')
 const { KW: ORDER_KW, match } = driverOrderHandler
-const { KW: CMD_KW, clearBreakTimer } = driverCommandHandler
+const { KW: CMD_KW, clearBreakTimer, handleVoice } = driverCommandHandler
 
 const handleCancelReason = async (phone, text, ctx) => {
   const order = await q.getActiveOrderByDriver(phone)
@@ -58,88 +56,33 @@ const handle = async (phone, msg, session) => {
   let { text, type, buttonId, mediaUrl } = msg
   const state = session?.state || 'idle'
   try {
-    // 1. ГОЛОСОВОЕ — сложная нормализация остаётся здесь
+    // 1. ГОЛОСОВОЕ
     if (type === 'voice') {
       if (!mediaUrl) { await wa.sendText(phone, '🎙 Голосовое не получено. Напишите команду.'); return }
-      const voiceText = await transcribeVoice(mediaUrl, phone)
-      if (!voiceText) { await wa.sendText(phone, '🎤 Не удалось распознать. Напишите команду.'); return }
 
-      // Голос в режиме «водитель как клиент» → обработка как адрес/текст клиента
+      // ── Приоритетные состояния — транскрибируем и передаём как текст ──
       if (state === 'driver_as_client') {
+        const voiceText = await transcribeVoice(mediaUrl, phone)
+        if (!voiceText) { await wa.sendText(phone, '🎤 Не удалось распознать. Напишите команду.'); return }
         return handleAsClient(phone, { ...msg, text: voiceText, type: 'text' }, session)
       }
-      // Голос во время фото → нельзя голосом, нужно фото
       if (state === 'reg_photo' || state === 'edit_photo') {
         await wa.sendText(phone, '📸 Для этого шага отправьте ФОТО автомобиля.')
         return
       }
-      // Голос во время регистрации/редактирования → текстовый ввод данных
-      if (state.startsWith('reg_'))  { return driverRegistrationHandler.handleRegistration(phone, { ...msg, text: voiceText, type: 'text' }, state) }
-      if (state.startsWith('edit_')) { return driverRegistrationHandler.handleEdit(phone, { ...msg, text: voiceText, type: 'text' }, state) }
-
-      // Нормализация: убираем пунктуацию, исправляем формы которые путает Whisper
-      const vlo = voiceText.toLowerCase().trim()
-        .replace(/[.,!?;:]+/g, '')
-        .replace(/слини[йеяь]?/g, 'с линии')
-        .replace(/налин[иую][юй]?/g, 'на линию')
-        .replace(/\bлинией\b/g, 'линии').replace(/\bлинею\b/g, 'линию')
-        .replace(/\bсвободный\b|\bсвободна\b|\bсвободно\b/g, 'свободен')
-        .replace(/\bприбыла\b|\bприбыло\b/g, 'прибыл')
-        .replace(/\bложная\b|\bложное\b/g, 'ложный')
-        .replace(/\bпринято\b|\bприняла\b|\bпринятый\b/g, 'принял')
-        .replace(/\bдоехала\b/g, 'доехали').replace(/\bзавершила\b/g, 'завершил')
-        .trim()
-
-      const driver2 = await q.getDriver(phone)
-      if (!driver2) { await wa.sendText(phone, '⚠️ Водитель не найден.'); return }
-
-      const { intent } = detectVoiceIntent(vlo)
-      log.msg(phone, 'driver', state, 'voice_intent', intent + ' | ' + vlo.slice(0, 60))
-
-      // В поездке — обрабатываем команды завершения
-      if (driver2.status === 'busy') {
-        const order2 = await q.getActiveOrderByDriver(phone)
-        if (order2) {
-          if (intent === 'arrived')    { await orderEngine.arrived(order2.id, phone); return }
-          if (intent === 'complete')   { await orderEngine.complete(order2.id, phone); return }
-          if (intent === 'false_call') { await orderEngine.falseCall(order2.id, phone); return }
-        }
-      }
-
-      // Принял / пропустил
-      if (intent === 'accept_order') {
-        const p2 = await q.getPendingOrderForDriver(phone)
-        if (p2) await orderEngine.accept(p2.id, phone)
-        else await wa.sendText(phone, 'Нет предложения.')
+      if (state.startsWith('reg_')) {
+        const voiceText = await transcribeVoice(mediaUrl, phone)
+        if (voiceText) return driverRegistrationHandler.handleRegistration(phone, { ...msg, text: voiceText, type: 'text' }, state)
         return
       }
-      if (intent === 'skip') { await q.moveDriverToEndOfQueue(phone); await wa.sendText(phone, 'Пропущено.'); return }
-
-      // На линию / с линии
-      if (intent === 'go_online') {
-        clearBreakTimer(phone)
-        await q.clearSession(phone)
-        const r2 = await driverMgr.goOnline(phone)
-        if (r2.error === 'no_balance') { await wa.sendText(phone, 'Баланс = 0. Обратитесь к администратору.'); return }
-        const pos2 = await q.getDriverQueuePosition(phone)
-        const cnt2 = (await q.getOnlineDriversQueue()).length
-        await wa.sendText(phone, '🟢 *Вы на линии!*\n📋 Позиция: *' + pos2 + '-й* из *' + cnt2 + '* водителей.')
-        return
-      }
-      if (intent === 'go_offline') { await driverMgr.goOffline(phone); await wa.sendText(phone, '⚫ Ушли с линии. Отдыхайте!'); return }
-
-      // Статистика
-      if (intent === 'stats') {
-        const notify = require('../modules/notificationService')
-        const stats2 = await q.getDriverTodayStats(driver2.id)
-        await notify.driverStats(phone, driver2, stats2)
+      if (state.startsWith('edit_')) {
+        const voiceText = await transcribeVoice(mediaUrl, phone)
+        if (voiceText) return driverRegistrationHandler.handleEdit(phone, { ...msg, text: voiceText, type: 'text' }, state)
         return
       }
 
-      // Groq fallback для неизвестных команд
-      const groqVoice = await getGroqDriverReply(voiceText, driver2?.full_name, null, { status: driver2?.status }).catch(() => null)
-      await wa.sendText(phone, groqVoice || '🎤 Сказано: *"' + voiceText + '"*\n\nКоманды: *принял, прибыл, свободен, ложный, на линию, с линии, статистика*')
-      return
+      // ── Основные команды: всё в driverCommandHandler.handleVoice ──
+      return handleVoice(phone, mediaUrl, session)
     }
 
     // 2. Состояния регистрации/редактирования

@@ -1,8 +1,12 @@
 const wa = require('../whatsapp/greenApi')
 const q = require('../db/queries')
 const driverMgr = require('../modules/driverManager')
+const orderEngine = require('../modules/orderEngine')
 const notify = require('../modules/notificationService')
 const { getGroqDriverReply } = require('../modules/smartReply')
+const { recognizeVoice } = require('../modules/voiceRecognizer')
+const { detectVoiceIntent } = require('../modules/voiceCommands')
+const log = require('../logger')
 
 const KW = {
   ONLINE:  ['на линию','линию','выхожу','начинаю','работаю','онлайн','старт','начать','работать',
@@ -190,4 +194,93 @@ const handleCommand = async (phone, lo, driver, session) => {
   }
 }
 
-module.exports = { handleCommand, handleCommandButtons, clearBreakTimer, breakTimers, KW, match }
+/**
+ * Вся голосовая обработка водителя — транскрипция + intent + действие.
+ * Вызывается из driverHandler.js после priority-state routing (reg_*, edit_*, driver_as_client).
+ * Включает Whisper-коррекции специфичные для русских команд водителей.
+ */
+const handleVoice = async (phone, mediaUrl, session) => {
+  const state = session?.state || 'idle'
+
+  const voiceText = await recognizeVoice(mediaUrl, phone)
+  if (!voiceText) {
+    await wa.sendText(phone, '🎤 Не удалось распознать голос. Напишите команду текстом.')
+    return
+  }
+
+  // Коррекция типичных ошибок Whisper для русских водительских команд
+  const corrected = voiceText.toLowerCase().trim()
+    .replace(/[.,!?;:]+/g, ' ')
+    .replace(/слини[йеяь]?/g, 'с линии')
+    .replace(/налин[иую][юй]?/g, 'на линию')
+    .replace(/\bлинией\b|\bлинею\b/g, 'линии')
+    .replace(/\bсвободный\b|\bсвободна\b|\bсвободно\b/g, 'свободен')
+    .replace(/\bприбыла\b|\bприбыло\b/g, 'прибыл')
+    .replace(/\bложная\b|\bложное\b/g, 'ложный')
+    .replace(/\bпринято\b|\bприняла\b|\bпринятый\b/g, 'принял')
+    .replace(/\bдоехала\b/g, 'доехали')
+    .replace(/\s+/g, ' ').trim()
+
+  const result = detectVoiceIntent(corrected)
+  log.msg(phone, 'driver', state, 'voice', voiceText + ' → ' + result.intent)
+
+  // ─── В поездке ────────────────────────────────────────────────
+  const order = await q.getActiveOrderByDriver(phone)
+  if (order) {
+    if (result.intent === 'arrived')    { await orderEngine.arrived(order.id, phone); return }
+    if (result.intent === 'complete')   { await orderEngine.complete(order.id, phone); return }
+    if (result.intent === 'false_call') { await orderEngine.falseCall(order.id, phone); return }
+  }
+
+  // ─── Принял / пропустил ───────────────────────────────────────
+  if (result.intent === 'accept_order') {
+    const pending = await q.getPendingOrderForDriver(phone)
+    if (pending) await orderEngine.accept(pending.id, phone)
+    else await wa.sendText(phone, 'Нет активного предложения.')
+    return
+  }
+  if (result.intent === 'skip') {
+    await q.moveDriverToEndOfQueue(phone)
+    await wa.sendText(phone, '✅ Пропущено. Ожидайте следующий заказ.')
+    return
+  }
+
+  // ─── На линию / с линии ───────────────────────────────────────
+  if (result.intent === 'go_online') {
+    clearBreakTimer(phone)
+    await q.clearSession(phone)
+    const r = await driverMgr.goOnline(phone)
+    if (r.error === 'no_balance') { await wa.sendText(phone, '🔴 Баланс = 0. Обратитесь к администратору.'); return }
+    const pos = await q.getDriverQueuePosition(phone)
+    const cnt = (await q.getOnlineDriversQueue()).length
+    await wa.sendButtons(phone,
+      '🟢 *Вы на линии!*\n📋 Позиция: *' + pos + '-й* из *' + cnt + '*',
+      [{ id: 'go_offline', text: '⚫ Уйти с линии' }]
+    )
+    return
+  }
+  if (result.intent === 'go_offline') {
+    await driverMgr.goOffline(phone)
+    await wa.sendButtons(phone, '⚫ Вы ушли с линии.',
+      [{ id: 'go_online', text: '🟢 На линию' }, { id: 'order_as_client', text: '🚖 Заказать такси' }]
+    )
+    return
+  }
+
+  // ─── Статистика ───────────────────────────────────────────────
+  if (result.intent === 'stats') {
+    const driver = await q.getDriver(phone)
+    if (driver) { const stats = await q.getDriverTodayStats(driver.id); await notify.driverStats(phone, driver, stats) }
+    return
+  }
+
+  // ─── Groq fallback ────────────────────────────────────────────
+  const driver = await q.getDriver(phone)
+  const groqReply = await getGroqDriverReply(voiceText, driver?.full_name, null, { status: driver?.status })
+    .catch(() => null)
+  await wa.sendText(phone,
+    groqReply || '🎤 Распознано: *"' + voiceText + '"*\n\nКоманды: *принял, прибыл, свободен, ложный, на линию, с линии, статистика*'
+  )
+}
+
+module.exports = { handleVoice, handleCommand, handleCommandButtons, clearBreakTimer, breakTimers, KW, match }
