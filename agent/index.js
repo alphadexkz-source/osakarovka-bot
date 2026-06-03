@@ -45,28 +45,28 @@ bot.on('message:text', async ctx => {
     const all = await mem.getAll();
     if (!all.length) return ctx.reply('📭 Память пуста.');
     const lines = all.slice(0, 20).map(m =>
-      `• *[${m.category}]* ${m.key}\n  ${m.content.slice(0, 120)}${m.content.length > 120 ? '…' : ''}`
+      `[${m.category}] ${m.key}:\n  ${m.content.slice(0, 100)}${m.content.length > 100 ? '…' : ''}`
     ).join('\n\n');
-    return ctx.reply('🧠 *Моя память:*\n\n' + lines, { parse_mode: 'Markdown' });
+    return ctx.reply('🧠 Моя память:\n\n' + lines);
   }
 
   if (lo === 'задачи' || lo === '/tasks') {
     const tasks = await mem.getRecentTasks(8);
     if (!tasks.length) return ctx.reply('📭 Задач пока нет.');
     const lines = tasks.map((t, i) => {
-      const preview = t.description.slice(0, 80).replace(/\n/g, ' ');
+      const preview = t.description.slice(0, 80).replace(/\n/g, ' ').replace(/[*_`]/g, '');
       const date = new Date(t.created_at).toLocaleDateString('ru-RU', { day:'numeric', month:'short' });
       return `${i+1}. [${t.status}] ${preview}…\n   📅 ${date}`;
     }).join('\n\n');
-    return ctx.reply('📋 *Последние задачи:*\n\n' + lines, { parse_mode: 'Markdown' });
+    return ctx.reply('📋 Последние задачи:\n\n' + lines);
   }
 
   if (lo === 'статус' || lo === '/status') {
     const all = await mem.getAll();
     const statusMems = all.filter(m => m.category === 'status');
     if (!statusMems.length) return ctx.reply('📊 Статус: бот работает на продакшне.');
-    const lines = statusMems.map(m => `• *${m.key}:* ${m.content}`).join('\n');
-    return ctx.reply('📊 *Статус проекта:*\n\n' + lines, { parse_mode: 'Markdown' });
+    const lines = statusMems.map(m => `• ${m.key}: ${m.content}`).join('\n');
+    return ctx.reply('📊 Статус проекта:\n\n' + lines);
   }
 
   if (lo.startsWith('забыть ') || lo.startsWith('/forget ')) {
