@@ -44,7 +44,7 @@ const TOOLS = [{
       properties: {
         is_address: {
           type: 'boolean',
-          description: 'Является ли сообщение адресом или местом назначения для поездки на такси',
+          description: 'BOOLEAN (не строка). true — если это место/адрес куда ехать. false — всё остальное.',
         },
         destination: {
           type: 'string',
@@ -52,8 +52,8 @@ const TOOLS = [{
         },
         is_saved_place: {
           type: 'string',
-          enum: ['home', 'work', 'none'],
-          description: '"домой"/"дом" → home, "на работу"/"работа" → work, иначе none',
+          enum: ['home', 'work'],
+          description: 'Указывай ТОЛЬКО если: "домой"/"дом"/"үй" → home, "на работу"/"работа"/"жұмыс" → work. В остальных случаях НЕ включай это поле.',
         },
         comment: {
           type: 'string',
@@ -152,7 +152,7 @@ destination — нормализованный адрес без лишних с
     const analysis = {
       ...raw,
       is_address: raw.is_address === true || raw.is_address === 'true',
-      is_saved_place: ['home','work','none'].includes(raw.is_saved_place) ? raw.is_saved_place : 'none',
+      is_saved_place: raw.is_saved_place === 'home' ? 'home' : raw.is_saved_place === 'work' ? 'work' : 'none',
     };
     cache.set(lo, analysis);
     setTimeout(() => cache.delete(lo), 3600000);
