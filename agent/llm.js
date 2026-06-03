@@ -88,13 +88,20 @@ ${memoryBlock || '(пусто)'}
 - Когда даёшь задачу Claude — она должна быть самодостаточной (всё что нужно внутри)`;
 
 const think = async (userMessage, memory, history) => {
-  const memoryBlock = memory.length
-    ? memory.map(m => `[${m.category}] ${m.key}: ${m.content}`).join('\n')
+  // Берём только топ-12 самых важных записей чтобы не превысить TPM лимит
+  const topMemory = memory
+    .sort((a, b) => (b.importance || 5) - (a.importance || 5))
+    .slice(0, 12);
+  const memoryBlock = topMemory.length
+    ? topMemory.map(m => `${m.key}: ${m.content.slice(0, 150)}`).join('\n')
     : '';
+
+  // История: только последние 8 сообщений
+  const recentHistory = history.slice(-8);
 
   const messages = [
     { role: 'system', content: SYSTEM_PROMPT(memoryBlock) },
-    ...history.map(h => ({ role: h.role, content: h.content })),
+    ...recentHistory.map(h => ({ role: h.role, content: h.content })),
     { role: 'user', content: userMessage },
   ];
 
@@ -103,7 +110,7 @@ const think = async (userMessage, memory, history) => {
     messages,
     tools: TOOLS,
     tool_choice: 'auto',
-    max_tokens: 2000,
+    max_tokens: 1000,
     temperature: 0.6,
   });
 
@@ -131,7 +138,7 @@ const think = async (userMessage, memory, history) => {
         assistantMsg,
         ...toolCalls.map(tc => ({ role: 'tool', tool_call_id: tc.id, content: 'OK' })),
       ],
-      max_tokens: 500,
+      max_tokens: 300,
       temperature: 0.6,
     });
     reply = second.choices[0].message.content || '';
