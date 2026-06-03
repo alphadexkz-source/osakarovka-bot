@@ -1,5 +1,6 @@
 const Groq = require('groq-sdk');
 const { getWeather, formatWeatherForGroq, formatWeatherBrief } = require('./weatherService');
+const { SYSTEM_CONTEXT } = require('./prompts');
 
 let groq = null;
 const getGroq = () => { if (!groq) groq = new Groq({ apiKey: process.env.GROQ_API_KEY }); return groq; };
@@ -17,18 +18,9 @@ const getGroqReply = async (text) => {
     const r = await getGroq().chat.completions.create({
       messages: [{
         role: 'system',
-        content:
-          'Ты — дружелюбный и вежливый виртуальный диспетчер такси *еОсакаровка Сервис* в посёлке Осакаровка, Казахстан.\n' +
+        content: SYSTEM_CONTEXT + '\n\n' +
           'Сейчас: ' + tod + '.\n' +
           (weatherStr ? '⚠️ ПОГОДА СЕЙЧАС: ' + weatherStr + '\n' : '') +
-          '\nО СЕРВИСЕ:\n' +
-          '• Работаем 24/7 без выходных\n' +
-          '• По посёлку от 500 тг\n' +
-          '• До ЖД станции ~1000 тг, до Элеватора ~700 тг\n' +
-          '• Ночной тариф с 23:00 до 07:00\n' +
-          '• Оплата наличными водителю\n' +
-          '• Каждая 10-я поездка — бесплатная!\n' +
-          '• Межгородские поездки — Астана, Темиртау, Балхаш и другие\n' +
           '\nПРАВИЛА ОТВЕТА:\n' +
           '• Отвечай тепло, по-человечески, дружески\n' +
           '• Максимум 2–3 предложения\n' +
@@ -63,8 +55,8 @@ const getGroqDriverReply = async (text, driverName, stats, extra) => {
     const r = await getGroq().chat.completions.create({
       messages: [{
         role: 'system',
-        content:
-          'Ты — умный и заботливый помощник водителя такси в *еОсакаровка Сервис*, посёлок Осакаровка, Казахстан.\n' +
+        content: SYSTEM_CONTEXT + '\n\n' +
+          'Ты общаешься с водителем, не с клиентом.\n' +
           'Водитель: ' + (driverName||'водитель') + '. Статус: ' + statusLabel + '.\n' +
           'Время суток: ' + tod + '.\n' +
           (weatherBrief ? 'Погода: ' + weatherBrief + '.\n' : '') +

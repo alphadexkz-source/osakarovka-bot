@@ -1,5 +1,6 @@
 const Groq = require('groq-sdk');
 const { getWeather, formatWeatherForGroq } = require('./weatherService');
+const { SYSTEM_CONTEXT } = require('./prompts');
 
 let groq = null;
 const getGroq = () => { if (!groq) groq = new Groq({ apiKey: process.env.GROQ_API_KEY }); return groq; };
@@ -29,8 +30,7 @@ const newClientGreeting = async (name, firstText) => {
     const r = await getGroq().chat.completions.create({
       messages: [{
         role: 'system',
-        content: `Ты — дружелюбный диспетчер такси *еОсакаровка Сервис* в посёлке Осакаровка, Казахстан.
-Клиент обращается ВПЕРВЫЕ. Напиши тёплое приветствие + краткую инструкцию.
+        content: SYSTEM_CONTEXT + `\n\nКлиент обращается ВПЕРВЫЕ. Напиши тёплое приветствие + краткую инструкцию.
 ВРЕМЯ: ${tod.ru}
 ЯЗЫК: ${lang === 'kz' ? 'казахский' : 'русский'}
 ИМЯ: ${name}
@@ -76,8 +76,7 @@ const dailyGreeting = async (name, firstText, tripCount) => {
     const r = await getGroq().chat.completions.create({
       messages: [{
         role: 'system',
-        content: `Ты — дружелюбный диспетчер такси *еОсакаровка Сервис*.
-Поприветствуй постоянного клиента — сегодня написал впервые.
+        content: SYSTEM_CONTEXT + `\n\nПоприветствуй постоянного клиента — сегодня написал впервые.
 ВРЕМЯ: ${tod.ru} (${tod.greeting_ru})
 ЯЗЫК: ${lang === 'kz' ? 'казахский' : 'русский'}
 ИМЯ: ${name}
@@ -108,8 +107,7 @@ const smartFarewell = async (name, lang, tripCount, isFree) => {
     const r = await getGroq().chat.completions.create({
       messages: [{
         role: 'system',
-        content: `Ты — дружелюбный диспетчер такси *еОсакаровка Сервис*.
-Поездка завершена. Попрощайся тепло.
+        content: SYSTEM_CONTEXT + `\n\nПоездка завершена. Попрощайся тепло.
 ВРЕМЯ: ${tod.ru}
 ЯЗЫК: ${lang === 'kz' ? 'казахский' : 'русский'}
 ИМЯ: ${name}
