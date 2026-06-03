@@ -44,8 +44,7 @@ const TOOLS = [{
       type: 'object',
       properties: {
         is_address: {
-          type: 'boolean',
-          description: 'BOOLEAN (не строка). true — если это место/адрес куда ехать. false — всё остальное.',
+          description: 'Boolean true если это адрес/место куда ехать, false если нет. Возвращай именно boolean, не строку.',
         },
         destination: {
           type: 'string',
@@ -57,7 +56,6 @@ const TOOLS = [{
         },
       },
       required: ['is_address'],
-      additionalProperties: false,
     },
   },
 }];
