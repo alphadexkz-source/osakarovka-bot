@@ -39,7 +39,7 @@ const handle = async (phone, msg, session) => {
     // ГОЛОСОВОЕ
     if (type === 'voice') {
       if (!mediaUrl) { await wa.sendText(phone, '🎙 Голосовое не получено. Напишите команду.'); return; }
-      const voiceText = await recognizeVoice(mediaUrl).catch(() => null);
+      const voiceText = await recognizeVoice(mediaUrl, phone).catch(() => null);
       if (!voiceText || voiceText.length < 2) { await wa.sendText(phone, '🎤 Не удалось распознать. Напишите команду.'); return; }
 
       // Голос в режиме «водитель как клиент» → обработка как адрес/текст клиента

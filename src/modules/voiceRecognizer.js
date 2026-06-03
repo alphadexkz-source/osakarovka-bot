@@ -1,8 +1,11 @@
+'use strict';
+
 const Groq = require('groq-sdk');
 const axios = require('axios');
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
+const log = require('../logger');
 
 let groq = null;
 const getGroq = () => {
@@ -10,15 +13,17 @@ const getGroq = () => {
   return groq;
 };
 
-const recognizeVoice = async (audioUrl) => {
+const recognizeVoice = async (audioUrl, phone = 'unknown') => {
   let tmpFile = null;
+  const started = Date.now();
+
   try {
     if (!audioUrl) {
-      console.error('[voiceRecognizer] no audioUrl');
+      log.voice(phone, 'error', { reason: 'no_audioUrl' });
       return null;
     }
 
-    console.log('[voiceRecognizer] downloading:', audioUrl.slice(0, 80));
+    log.voice(phone, 'downloading', { url: audioUrl.slice(0, 80) });
 
     const response = await axios.get(audioUrl, {
       responseType: 'arraybuffer',
@@ -27,10 +32,9 @@ const recognizeVoice = async (audioUrl) => {
     });
 
     const fileSize = Buffer.byteLength(response.data);
-    console.log('[voiceRecognizer] file size:', fileSize, 'bytes');
 
     if (fileSize < 100) {
-      console.error('[voiceRecognizer] file too small:', fileSize);
+      log.voice(phone, 'error', { reason: 'file_too_small', size: fileSize });
       return null;
     }
 
@@ -48,12 +52,21 @@ const recognizeVoice = async (audioUrl) => {
     });
 
     const result = typeof raw === 'string' ? raw.trim() : (raw?.text || '').trim();
-    const ts = new Date().toLocaleTimeString('ru-RU', { timeZone: 'Asia/Almaty' });
-    console.log(`[VOICE ${ts}] ${result?.slice(0, 100) || '(пусто)'}`);
+    const ms = Date.now() - started;
+
+    log.voice(phone, 'ok', {
+      size: fileSize,
+      ms,
+      text: result?.slice(0, 80) || '(пусто)',
+    });
+
     return result || null;
 
   } catch (err) {
-    console.error('[voiceRecognizer] error:', err.message);
+    log.voice(phone, 'error', {
+      reason: err.message?.slice(0, 100),
+      ms: Date.now() - started,
+    });
     return null;
   } finally {
     if (tmpFile && fs.existsSync(tmpFile)) {

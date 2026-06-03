@@ -116,7 +116,7 @@ const handle = async (phone, name, msg, session) => {
         return;
       }
       await wa.sendText(phone, '🎤 Распознаю голосовое сообщение...');
-      const recognized = await recognizeVoice(mediaUrl);
+      const recognized = await recognizeVoice(mediaUrl, phone);
       if (recognized && recognized.length >= 2) {
         // Если ждём оценку — конвертируем числа словами в цифры
         let voiceText = recognized;
