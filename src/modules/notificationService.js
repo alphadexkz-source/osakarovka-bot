@@ -125,12 +125,16 @@ const driverStats = async (phone, driver, stats) => {
   ).then(r => r.rows[0]).catch(() => null);
   const bestDayLine = bestDay ? `📅 Лучший день: *${new Date(bestDay.day).toLocaleDateString('ru-RU',{weekday:'short',day:'numeric',month:'short'})}* — ${bestDay.trips} поездок, ${Number(bestDay.earned).toLocaleString()} тг` : '';
   const bal = driver.order_balance >= 999999 ? '∞ (пробный период)' : `${driver.order_balance} заказов`;
+  const rating = driver.rating ? Number(driver.rating).toFixed(1) : '5.0';
+  const ratingCount = driver.rating_count || 0;
+  const ratingStars = rating >= 4.5 ? '⭐⭐⭐⭐⭐' : rating >= 3.5 ? '⭐⭐⭐⭐' : rating >= 2.5 ? '⭐⭐⭐' : '⭐⭐';
+  const ratingLine = `${ratingStars} *${rating}/5.0* (${ratingCount} оценок)`;
   await wa.sendText(phone,
     `📊 *Статистика — ${driver.full_name}*\n\n` +
     `*Сегодня:*\n🚖 ${stats.completed||0} поездок | 💰 ${Number(stats.earned||0).toLocaleString()} тг\n\n` +
     `*За 7 дней:*\n🚖 ${week.completed||0} поездок | 💰 ${Number(week.earned||0).toLocaleString()} тг\n${bestDayLine ? bestDayLine+'\n' : ''}` +
     `\n*За 30 дней:*\n🚖 ${month.completed||0} поездок | 💰 ${Number(month.earned||0).toLocaleString()} тг\n📈 Средний заработок: *${avgDay.toLocaleString()} тг/день*\n\n` +
-    `${rankLine}\n📦 Баланс: *${bal}*\n${icons[driver.status]||'⚫'} ${labels[driver.status]||'Офлайн'}`
+    `${rankLine}\n${ratingLine}\n📦 Баланс: *${bal}*\n${icons[driver.status]||'⚫'} ${labels[driver.status]||'Офлайн'}`
   );
 };
 
