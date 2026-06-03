@@ -4,6 +4,7 @@ const tariffEng = require('../modules/tariffEngine');
 const driverMgr = require('../modules/driverManager');
 const notify    = require('../modules/notificationService');
 const config    = require('../config');
+const { getTestReport } = require('../modules/testLogger');
 
 // ─── FIX: Защита от брутфорса PIN ─────────────────────────────
 const login = async (phone, text) => {
@@ -131,6 +132,13 @@ const handle = async (phone, msg, session) => {
       await q.blacklistDriver(target, false);
       await wa.sendText(phone, `✅ Водитель ${target} разблокирован.`);
       return;
+    }
+
+    // ── ТЕСТ ОТЧЁТ ───────────────────────────────────────────
+    if (lo === 'тест' || lo === 'отчёт' || lo === 'лог теста') {
+      const report = getTestReport()
+      await wa.sendText(phone, `📊 *Отчёт тестирования за сегодня*\n\n${report || 'Пока ничего не записано.'}`)
+      return
     }
 
     // ── СТАТИСТИКА ────────────────────────────────────────────
