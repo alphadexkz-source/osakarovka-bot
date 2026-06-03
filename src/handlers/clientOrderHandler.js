@@ -6,7 +6,7 @@ const tariff = require('../modules/tariffEngine')
 const config = require('../config')
 const { isAddress, resolveAddress } = require('../modules/addressDetector')
 const { parseScheduleTime } = require('../modules/smartReply')
-const { transcribe: transcribeVoice } = require('../modules/voiceCommandHandler')
+const { recognizeVoice } = require('../modules/voiceRecognizer')
 const { detectVoiceIntent } = require('../modules/voiceCommands')
 const log = require('../logger')
 
@@ -48,46 +48,40 @@ const handle = async (phone, name, msg, session) => {
   const { text, type, mediaUrl } = msg
   const state = session?.state || 'idle'
 
-  // ─── Голос → транскрибируем → обрабатываем ───────────────────
+  // ─── Голос в confirming → recognizeVoice напрямую ───────────
   if (type === 'voice') {
     if (!mediaUrl) return
-    // Сообщаем что слышим (clientHandler здесь обходится, поэтому пишем сами)
-    await wa.sendText(phone, '🎤 Распознаю голосовое сообщение...')
-    const voiceText = await transcribeVoice(mediaUrl, phone)
+    const voiceText = await recognizeVoice(mediaUrl, phone)
     if (!voiceText) {
-      await new Promise(r => setTimeout(r, 800))
-      const ctx = session?.ctx || {}
-      if (ctx.destination) {
-        await wa.sendButtons(phone,
-          '🎤 Не удалось распознать.\n\n🚖 *Ваш заказ:*\n\n📍 Куда: *' + ctx.destination + '*\n💰 Цена: *' + ctx.price + ' тг*\n\nВсё верно?',
-          [{ id: 'confirm_order', text: '✅ Да, поехали!' }, { id: 'cancel_new', text: '❌ Отмена' }]
-        )
-      }
+      await wa.sendText(phone, '🎤 Не удалось распознать. Напишите "да" или "нет".')
       return
     }
 
-    log.msg(phone, 'client', state, 'voice_confirm', voiceText)
+    const result = detectVoiceIntent(voiceText)
+    log.msg(phone, 'client', 'confirming', 'voice', voiceText + ' → ' + result.intent)
 
     const ctx = session?.ctx || {}
-    const { intent: voiceIntent } = detectVoiceIntent(voiceText)
-    const isVoiceConfirm = voiceIntent === 'confirm'
-    const isVoiceCancel  = voiceIntent === 'cancel'
 
-    if (isVoiceConfirm && !isVoiceCancel) {
-      if (!ctx.destination) return
+    if (result.intent === 'confirm') {
+      if (!ctx.destination) {
+        await wa.sendText(phone, '⚠️ Ошибка сессии. Начните заказ заново.')
+        await q.clearSession(phone)
+        return
+      }
       return orderEngine.create(phone, ctx.destination, {
         price: ctx.price,
         tariff: ctx.tariff_id ? { id: ctx.tariff_id } : null,
       })
     }
-    if (isVoiceCancel) {
+
+    if (result.intent === 'cancel') {
       await q.clearSession(phone)
-      await wa.sendText(phone, '❌ Заказ отменён. Напишите новый адрес.')
+      await wa.sendText(phone, '❌ Заказ отменён.\nНапишите новый адрес.')
       return
     }
-    // Неясный ответ — небольшая пауза, повторяем кнопки
+
+    // Неясное намерение — повторяем вопрос с кнопками
     if (ctx.destination) {
-      await new Promise(r => setTimeout(r, 800))
       await wa.sendButtons(phone,
         '🚖 *Ваш заказ:*\n\n📍 Куда: *' + ctx.destination + '*\n💰 Цена: *' + ctx.price + ' тг*\n\nВсё верно?',
         [{ id: 'confirm_order', text: '✅ Да, поехали!' }, { id: 'cancel_new', text: '❌ Отмена' }]
