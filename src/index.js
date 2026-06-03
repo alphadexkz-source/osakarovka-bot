@@ -3,11 +3,15 @@ const log = require('./logger');
 log.initFileLogging(); // ПЕРВЫМ — патчит console.error/warn → logs/errors.log
 const express = require('express');
 
+const BOT_VERSION = '2.0.0'; // Stage 1+2+3+4 рефакторинг
+
 process.on('uncaughtException', (err) => {
-  console.error('[UNCAUGHT EXCEPTION]', err.stack || err.message);
+  log.error('uncaughtException', err);
+  // Даём время записать лог перед выходом
+  setTimeout(() => process.exit(1), 500);
 });
 process.on('unhandledRejection', (reason) => {
-  console.error('[UNHANDLED REJECTION]', reason?.stack || reason);
+  log.error('unhandledRejection', reason instanceof Error ? reason : new Error(String(reason)));
 });
 const { route }  = require('./handlers/router');
 const { start: startTimers } = require('./modules/timerService');
@@ -60,21 +64,34 @@ setInterval(() => {
 
 // ─── Webhook ──────────────────────────────────────────────────
 app.post('/webhook', async (req, res) => {
-  res.sendStatus(200); // всегда отвечаем быстро
+  res.sendStatus(200); // отвечаем немедленно — Green API не ждёт
 
   try {
     const body = req.body;
-    if (!body || body.typeWebhook !== 'incomingMessageReceived') return;
+    if (!body || typeof body !== 'object') return;
 
-    // Извлечь телефон для rate limiting
-    const phone = body.senderData?.sender?.replace('@c.us', '');
+    // Проверяем что вебхук от нашего инстанса Green API
+    if (config.INSTANCE_ID &&
+        body.instanceData?.idInstance &&
+        String(body.instanceData.idInstance) !== String(config.INSTANCE_ID)) {
+      console.warn('[Webhook] Отклонён — чужой инстанс:', body.instanceData.idInstance);
+      return;
+    }
+
+    // Обрабатываем только входящие сообщения
+    if (body.typeWebhook !== 'incomingMessageReceived') return;
+
+    const sender = body.senderData?.sender;
+    const phone  = sender?.replace('@c.us', '');
     if (!phone) return;
 
     // Игнорируем групповые чаты
-    if (body.senderData?.sender?.includes('@g.us')) return;
-    if (phone.includes('@g.us') || phone.includes('-')) return;
+    if (sender?.includes('@g.us') || phone.includes('-')) return;
 
-    // Дедупликация вебхуков
+    // Базовая валидация формата номера
+    if (!/^\d{10,15}$/.test(phone)) return;
+
+    // Дедупликация вебхуков (in-memory + DB)
     if (isDuplicate(body.idMessage)) return;
 
     // Rate limiting
@@ -85,7 +102,7 @@ app.post('/webhook', async (req, res) => {
 
     await route(body);
   } catch (err) {
-    console.error('[Webhook]', err.message);
+    log.error('webhook', err);
   }
 });
 
@@ -184,23 +201,43 @@ async function recoverOnStartup() {
   }
 }
 
-// Глобальный обработчик ошибок Express
+// ─── Глобальный обработчик ошибок Express ────────────────────
+// Должен быть последним middleware (4 параметра обязательны)
+// eslint-disable-next-line no-unused-vars
 app.use((err, req, res, next) => {
-  console.error('[Express Error]', err.message);
+  log.error('express_error', err, { method: req.method, path: req.path });
+  if (res.headersSent) return;
   res.status(500).json({ error: 'Internal Server Error' });
 });
 
 const server = app.listen(config.PORT, async () => {
-  console.log(`\n🚖 еОсакаровка Сервис Bot`);
-  console.log(`🟢 Порт: ${config.PORT}`);
-  console.log(`🛡️  Rate limit: ${RATE_LIMIT} сообщений / 60 сек`);
+  console.log(`\n${'='.repeat(50)}`);
+  console.log(`🚖  еОсакаровка Сервис Bot  v${BOT_VERSION}`);
+  console.log(`${'='.repeat(50)}`);
+  console.log(`🟢  Порт:             ${config.PORT}`);
+  console.log(`📡  Green API:        ${config.INSTANCE_ID || 'не задан!'}`);
+  console.log(`⏱   Таймаут заказа:  ${config.ACCEPT_TIMEOUT_MS / 1000} сек`);
+  console.log(`🎯  Пауза водителей: ${config.PAUSE_MS / 1000} сек`);
+  console.log(`🛡️   Rate limit:      ${RATE_LIMIT} сообщ/мин`);
+  console.log(`${'='.repeat(50)}\n`);
+
   await recoverOnStartup();
   startTimers();
+
   // Предупреждение если тарифов нет
   db.query('SELECT COUNT(*) AS cnt FROM tariffs WHERE is_active=TRUE').then(r => {
     const cnt = parseInt(r.rows[0]?.cnt || 0);
-    if (cnt === 0) console.warn('⚠️  ТАРИФЫ НЕ ДОБАВЛЕНЫ — все заказы будут по умолчанию ' + config.CITY_PRICE + ' тг!');
-    else console.log(`✅ Тарифов в базе: ${cnt}`);
+    if (cnt === 0) {
+      console.warn('⚠️  ТАРИФЫ НЕ ДОБАВЛЕНЫ — все поездки будут по умолчанию ' + config.CITY_PRICE + ' тг!');
+    } else {
+      console.log(`✅ Тарифов в базе: ${cnt}`);
+    }
+  }).catch(() => {});
+
+  // Показываем режим распределения
+  db.query("SELECT value FROM settings WHERE key='distribution_mode'").then(r => {
+    const mode = r.rows[0]?.value || 'queue';
+    console.log(`📋 Режим распределения: ${mode === 'queue' ? 'Очередь' : 'Первый принял'}`);
   }).catch(() => {});
 });
 

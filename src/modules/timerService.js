@@ -71,10 +71,12 @@ const checkDispatchTimeouts = async () => {
       const driverPhone = order.dispatched_to
       await q.clearDispatchState(order.id)
       if (driverPhone) {
+        console.log(`[TimerService] Таймаут диспетчеризации: заказ #${order.id}, водитель ${driverPhone}`);
         await orderEngine.cancel(order.id, 'no_response').catch(() => {})
       }
     } catch (e) { console.error('[Timer/dispatch_timeout]', e.message) }
   }
+  return expired.length;
 }
 
 // ─── Предупреждение водителя и клиента при долгом движении к клиенту ─────────
@@ -105,6 +107,7 @@ const checkBreakTimers = async () => {
       if (driver?.status === 'offline') {
         const r = await driverMgr.goOnline(d.phone)
         if (r.success) {
+          console.log(`[TimerService] Перерыв завершён: водитель ${d.phone} (${d.full_name}) → online`);
           const pos = await q.getDriverQueuePosition(d.phone)
           const cnt = (await q.getOnlineDriversQueue()).length
           await wa.sendText(d.phone,
@@ -114,17 +117,27 @@ const checkBreakTimers = async () => {
       }
     } catch (e) { console.error('[Timer/break_timer]', e.message) }
   }
+  return expired.length;
 }
 
 // ─── Запуск всех крон-задач ───────────────────────────────────
 
 const start = () => {
+  console.log('[TimerService] Запуск...');
 
-  // При старте — разобрать зависшие диспетчеризации от предыдущего запуска
-  checkDispatchTimeouts().catch(e => console.error('[Timer/dispatch_timeout_startup]', e.message))
+  // ─── Восстановление после рестарта (выполняется один раз при старте) ──────
 
-  // При старте — восстановить истёкшие перерывы
-  checkBreakTimers().catch(e => console.error('[Timer/break_timer_startup]', e.message))
+  // 1. Зависшие диспетчеризации: водитель не ответил, таймер потерян при рестарте
+  checkDispatchTimeouts()
+    .then(n => { if (n > 0) console.log(`[TimerService] 🔧 Восстановлено диспетчеризаций: ${n}`); })
+    .catch(e => console.error('[Timer/dispatch_startup]', e.message));
+
+  // 2. Истёкшие перерывы: водитель был на паузе, бот перезапустился
+  checkBreakTimers()
+    .then(n => { if (n > 0) console.log(`[TimerService] 🔧 Завершено перерывов: ${n}`); })
+    .catch(e => console.error('[Timer/break_startup]', e.message));
+
+  console.log('[TimerService] Расписание активно');
 
   // Каждую минуту — проверка зависших диспетчеризаций + истёкших перерывов
   cron.schedule('*/1 * * * *', async () => {
