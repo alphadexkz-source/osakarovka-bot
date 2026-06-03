@@ -7,6 +7,7 @@ const config = require('../config')
 const { isAddress, resolveAddress } = require('../modules/addressDetector')
 const { parseScheduleTime } = require('../modules/smartReply')
 const { transcribe: transcribeVoice } = require('../modules/voiceCommandHandler')
+const { containsAny } = require('../modules/voiceUtils')
 const log = require('../logger')
 
 const INTERCITY = [
@@ -36,14 +37,6 @@ const CONFIRM = ['да','ok','ок','yes','подтверждаю','поехал
 
 const isCancel  = (lo) => CANCEL_EXACT.some(w => lo === w) || CANCEL_CONTAINS.some(w => lo === w || lo.includes(w))
 const isConfirm = (lo) => CONFIRM.some(w => lo === w)
-
-// Проверяет что слово w встречается в строке s как отдельное слово (не внутри другого).
-// Покрывает: точное совпадение, начало, конец, середина строки.
-const hasWord = (s, w) =>
-  s === w ||
-  s.startsWith(w + ' ') ||
-  s.endsWith(' ' + w) ||
-  s.includes(' ' + w + ' ')
 
 const CONFIRM_VOICE = ['да', 'ок', 'окей', 'yes', 'поехали', 'подтверждаю', 'конечно', 'ага', 'иә', 'ия', 'добро', 'аламын']
 const CANCEL_VOICE  = ['нет', 'не', 'отмена', 'отменить', 'не надо', 'жоқ', 'жок', 'стоп', 'cancel']
@@ -79,15 +72,8 @@ const handle = async (phone, name, msg, session) => {
 
     const ctx = session?.ctx || {}
 
-    // Нормализация: убираем знаки препинания (→ пробел), схлопываем пробелы
-    const voiceLo = voiceText.toLowerCase()
-      .trim()
-      .replace(/[.,!?;:'"«»—–]/g, ' ')
-      .replace(/\s+/g, ' ')
-      .trim()
-
-    const isVoiceConfirm = CONFIRM_VOICE.some(w => hasWord(voiceLo, w))
-    const isVoiceCancel  = CANCEL_VOICE.some(w => hasWord(voiceLo, w))
+    const isVoiceConfirm = containsAny(voiceText, CONFIRM_VOICE)
+    const isVoiceCancel  = containsAny(voiceText, CANCEL_VOICE)
 
     if (isVoiceConfirm && !isVoiceCancel) {
       if (!ctx.destination) return
