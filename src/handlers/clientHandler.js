@@ -426,7 +426,7 @@ const handle = async (phone, name, msg, session) => {
     if (shortcut) { const user = await q.getUser(phone); return handleNewOrder(phone, name, shortcut.address, user); }
     // Если написали «домой»/«үй» но адрес не сохранён — подсказываем
     if (['домой','дома','үйге','үй','домашний адрес'].some(w => lo === w)) {
-      await wa.sendText(phone, '🏠 Домашний адрес не сохранён.\n\nЧтобы сохранить:\n*"домой это [ваш адрес]"*\n\nНапример: домой это ул. Ленина 5');
+      await wa.sendText(phone, '🏠 Домашний адрес не сохранён.\n\nЧтобы сохранить:\n*"домой это [ваш адрес]"*\n\nНапример: домой это Достык 15');
       return;
     }
     if (['на работу','работа','жұмыс','жұмысқа','рабочий адрес'].some(w => lo === w)) {
