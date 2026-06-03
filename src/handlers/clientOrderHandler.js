@@ -7,6 +7,7 @@ const config = require('../config')
 const { isAddress, resolveAddress } = require('../modules/addressDetector')
 const { parseScheduleTime } = require('../modules/smartReply')
 const { transcribe: transcribeVoice } = require('../modules/voiceCommandHandler')
+const log = require('../logger')
 
 const INTERCITY = [
   // Сёла Осакаровского района
@@ -54,6 +55,7 @@ const CANCEL_VOICE  = ['нет', 'не', 'отмена', 'отменить', 'н
  */
 const handle = async (phone, name, msg, session) => {
   const { text, type, mediaUrl } = msg
+  const state = session?.state || 'idle'
 
   // ─── Голос → транскрибируем → обрабатываем ───────────────────
   if (type === 'voice') {
@@ -72,6 +74,8 @@ const handle = async (phone, name, msg, session) => {
       }
       return
     }
+
+    log.msg(phone, 'client', state, 'voice_confirm', voiceText)
 
     const ctx = session?.ctx || {}
 
