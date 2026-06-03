@@ -168,7 +168,7 @@ const handle = async (phone, name, msg, session) => {
     // 7. Инфо-команды
     if (await clientInfoHandler.handle(phone, msg)) return
 
-    // 8. Профильные команды (рефералы, история, адреса)
+    // 8. Профильные команды (история, адреса)
     const user = await q.getUser(phone)
     if (await clientProfileHandler.handleProfile(phone, lo, text, name, user)) return
 

@@ -98,18 +98,6 @@ const handleCommand = async (phone, lo, driver, session) => {
     return
   }
 
-  // ─── МОЙ РЕФЕРАЛЬНЫЙ КОД ─────────────────────────────────────
-  if (['мой код','реферал','пригласить','мой реферал','реферальный код'].some(w => lo.includes(w))) {
-    const code = await q.getOrCreateReferralCode(phone).catch(() => null)
-    if (!code) { await wa.sendText(phone, '❌ Не удалось получить код.'); return }
-    await wa.sendText(phone,
-      '🤝 *Ваш реферальный код для водителей:*\n\n' +
-      '🔑 *' + code + '*\n\n' +
-      'Когда новый водитель введёт ваш код при регистрации — вы получите *+20 заказов* к балансу!\n\n' +
-      'Поделитесь кодом с теми кто хочет работать в такси.'
-    )
-    return
-  }
 
   // ─── ОЧЕРЕДЬ ──────────────────────────────────────────────────
   if (match(lo, KW.QUEUE)) {
