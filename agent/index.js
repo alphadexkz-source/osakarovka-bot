@@ -24,55 +24,58 @@ bot.use(async (ctx, next) => {
   await next();
 });
 
-// ─── КОМАНДЫ ─────────────────────────────────────────────────
+// ─── КОМАНДЫ (только ASCII — Telegram не поддерживает кириллицу) ──
 bot.command('start', ctx => ctx.reply(
   '🤖 *Агент еОсакаровка активирован*\n\n' +
-  'Говори что хочешь — пойму, запомню, поставлю задачу Claude.\n\n' +
-  '📋 /задачи — история задач для Claude\n' +
-  '🧠 /память — что я знаю о проекте\n' +
-  '🗑 /забыть слово — удалить из памяти\n' +
-  '📊 /статус — текущее состояние',
+  'Просто пиши что хочешь — пойму, запомню, поставлю задачу Claude.\n\n' +
+  '🧠 память — что знаю о проекте\n' +
+  '📋 задачи — история задач для Claude\n' +
+  '📊 статус — текущее состояние\n' +
+  '🗑 забыть [слово] — удалить из памяти',
   { parse_mode: 'Markdown' }
 ));
-
-bot.command('память', async ctx => {
-  const all = await mem.getAll();
-  if (!all.length) return ctx.reply('📭 Память пуста.');
-  const lines = all.slice(0, 20).map(m =>
-    `• *[${m.category}]* ${m.key}\n  ${m.content.slice(0, 120)}${m.content.length > 120 ? '…' : ''}`
-  ).join('\n\n');
-  await ctx.reply('🧠 *Моя память:*\n\n' + lines, { parse_mode: 'Markdown' });
-});
-
-bot.command('задачи', async ctx => {
-  const tasks = await mem.getRecentTasks(8);
-  if (!tasks.length) return ctx.reply('📭 Задач пока нет.');
-  const lines = tasks.map((t, i) => {
-    const preview = t.description.slice(0, 80).replace(/\n/g, ' ');
-    const date = new Date(t.created_at).toLocaleDateString('ru-RU', { day:'numeric', month:'short' });
-    return `${i+1}. [${t.status}] ${preview}…\n   📅 ${date}`;
-  }).join('\n\n');
-  await ctx.reply('📋 *Последние задачи:*\n\n' + lines, { parse_mode: 'Markdown' });
-});
-
-bot.command('статус', async ctx => {
-  const statusMems = await mem.getAll().then(all => all.filter(m => m.category === 'status'));
-  if (!statusMems.length) return ctx.reply('📊 Статус: бот работает на продакшне.');
-  const lines = statusMems.map(m => `• *${m.key}:* ${m.content}`).join('\n');
-  await ctx.reply('📊 *Статус проекта:*\n\n' + lines, { parse_mode: 'Markdown' });
-});
-
-bot.command('забыть', async ctx => {
-  const keyword = ctx.match?.trim();
-  if (!keyword) return ctx.reply('Напиши что забыть: /забыть слово');
-  const count = await mem.forget(keyword);
-  await ctx.reply(count > 0 ? `🗑 Удалено записей: ${count}` : '🤷 Ничего не нашёл по этому слову.');
-});
 
 // ─── ГЛАВНЫЙ ОБРАБОТЧИК СООБЩЕНИЙ ────────────────────────────
 bot.on('message:text', async ctx => {
   const text = ctx.message.text;
-  if (text.startsWith('/')) return;
+  const lo = text.toLowerCase().trim();
+
+  // Команды на русском (без слеша — Telegram не поддерживает кириллицу в /командах)
+  if (lo === 'память' || lo === '/memory') {
+    const all = await mem.getAll();
+    if (!all.length) return ctx.reply('📭 Память пуста.');
+    const lines = all.slice(0, 20).map(m =>
+      `• *[${m.category}]* ${m.key}\n  ${m.content.slice(0, 120)}${m.content.length > 120 ? '…' : ''}`
+    ).join('\n\n');
+    return ctx.reply('🧠 *Моя память:*\n\n' + lines, { parse_mode: 'Markdown' });
+  }
+
+  if (lo === 'задачи' || lo === '/tasks') {
+    const tasks = await mem.getRecentTasks(8);
+    if (!tasks.length) return ctx.reply('📭 Задач пока нет.');
+    const lines = tasks.map((t, i) => {
+      const preview = t.description.slice(0, 80).replace(/\n/g, ' ');
+      const date = new Date(t.created_at).toLocaleDateString('ru-RU', { day:'numeric', month:'short' });
+      return `${i+1}. [${t.status}] ${preview}…\n   📅 ${date}`;
+    }).join('\n\n');
+    return ctx.reply('📋 *Последние задачи:*\n\n' + lines, { parse_mode: 'Markdown' });
+  }
+
+  if (lo === 'статус' || lo === '/status') {
+    const all = await mem.getAll();
+    const statusMems = all.filter(m => m.category === 'status');
+    if (!statusMems.length) return ctx.reply('📊 Статус: бот работает на продакшне.');
+    const lines = statusMems.map(m => `• *${m.key}:* ${m.content}`).join('\n');
+    return ctx.reply('📊 *Статус проекта:*\n\n' + lines, { parse_mode: 'Markdown' });
+  }
+
+  if (lo.startsWith('забыть ') || lo.startsWith('/forget ')) {
+    const keyword = lo.replace(/^забыть |^\/forget /, '').trim();
+    const count = await mem.forget(keyword);
+    return ctx.reply(count > 0 ? `🗑 Удалено записей: ${count}` : '🤷 Ничего не нашёл по этому слову.');
+  }
+
+  if (lo.startsWith('/')) return;
 
   let statusMsgId;
   try {
