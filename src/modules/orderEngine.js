@@ -3,6 +3,7 @@ const config = require('../config');
 const notify = require('./notificationService');
 const driverMgr = require('./driverManager');
 const wa = require('../whatsapp/greenApi');
+const log = require('../logger');
 
 const acceptTimers = new Map();
 const arriveTimers = new Map();
@@ -55,6 +56,7 @@ const create = async (clientPhone, destination, priceInfo) => {
     if (priceInfo.is_intercity) orderData.is_intercity = true;
 
     const order = await q.createOrder(orderData);
+    log.order('create', { orderId: order.id, client: clientPhone, dest: destination, price: priceInfo.price, isFree });
     await notify.clientSearching(clientPhone, destination, priceInfo.price, isFree, freeReason);
     await q.setSession(clientPhone, 'waiting_driver', { order_id: order.id });
 
@@ -169,8 +171,9 @@ const accept = async (orderId, driverPhone) => {
   const driver = await q.getDriver(driverPhone);
   if (!driver) return { error: 'driver_not_found' };
   const accepted = await q.atomicAcceptOrder(orderId, driver.id);
-  if (!accepted) return { error: 'already_taken' };
-  clearTimer(acceptTimers, orderId); // очищаем ПОСЛЕ успешного accept
+  if (!accepted) { log.warn('orderEngine', 'already_taken', { orderId, driver: driverPhone }); return { error: 'already_taken' }; }
+  clearTimer(acceptTimers, orderId);
+  log.order('accept', { orderId, driver: driverPhone });
   await q.setDriverStatus(driverPhone, 'busy');
   const mode = await q.getSetting('distribution_mode') || 'queue';
   if (mode === 'first') {
@@ -211,6 +214,7 @@ const complete = async (orderId, driverPhone) => {
   if (!['arrived', 'accepted'].includes(order.status)) return { error: 'wrong_status' };
   const driver = await q.getDriver(driverPhone);
   await q.updateOrder(orderId, { status:'completed', completed_at: new Date() });
+  log.order('complete', { orderId, driver: driverPhone, client: order.client_phone, price: order.price, isFree: order.is_free });
   const newTripCount = await q.incrementTripCount(order.client_phone);
   if (newTripCount === 1) {
     const client = await q.getUser(order.client_phone);
@@ -271,6 +275,7 @@ const cancel = async (orderId, reason = 'client') => {
   const order = await q.getOrder(orderId);
   if (!order) return;
   await q.updateOrder(orderId, { status:'cancelled', cancel_reason: reason, cancelled_at: new Date() });
+  log.order('cancel', { orderId, reason });
   const cancelReasonMap = {
     'no_drivers': 'Свободных водителей не нашлось',
     'no_response': 'Водители не ответили',

@@ -5,6 +5,7 @@ const driverHandler = require('./driverHandler');
 const adminHandler = require('./adminHandler');
 const config = require('../config');
 const { newClientGreeting } = require('../modules/greetingService');
+const log = require('../logger');
 
 // 'на линии' убрано — встречается в вопросах («сколько машин на линии»)
 // 'лайн' убрано — слишком короткое, срабатывает на чужих словах
@@ -44,7 +45,7 @@ const route = async (body) => {
 
     const session = await q.getSession(phone);
     const role = user?.role || 'new';
-    console.log(`[MSG] ${phone} role=${role} state=${session?.state||'idle'} type=${msg.type}`);
+    log.msg(phone, role, session?.state || 'idle', msg.type, msg.text);
     const lo = (text||'').toLowerCase().trim();
 
     // АДМИН ПАНЕЛЬ
@@ -146,7 +147,7 @@ const route = async (body) => {
     return clientHandler.handle(phone, name, msg, session);
 
   } catch (err) {
-    console.error('[Router]', err.message);
+    log.error('router', err);
   }
 };
 

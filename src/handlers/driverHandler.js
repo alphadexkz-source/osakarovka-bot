@@ -241,7 +241,8 @@ const handle = async (phone, msg, session) => {
     }
 
   } catch (err) {
-    console.error('[driverHandler]', err.message);
+    const log = require('../logger');
+    log.error('driverHandler', err, { phone, state });
     await wa.sendText(phone, 'Произошла ошибка.').catch(() => {});
   }
 };

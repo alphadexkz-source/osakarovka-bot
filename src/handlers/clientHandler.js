@@ -525,7 +525,8 @@ const handle = async (phone, name, msg, session) => {
     return handleNewOrder(phone, name, text, user);
 
   } catch (err) {
-    console.error('[clientHandler]', err.message);
+    const log = require('../logger');
+    log.error('clientHandler', err, { phone, state });
     await wa.sendText(phone, 'Произошла ошибка. Попробуйте еще раз.').catch(()=>{});
   }
 };
