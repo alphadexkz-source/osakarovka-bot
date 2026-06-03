@@ -77,6 +77,14 @@ const dispatch_queue = async (orderId, tried, circles) => {
   const order = await q.getOrder(orderId)
   if (!order || order.status !== 'searching') return
   const driver = await driverMgr.getNextDriver(tried)
+
+  // Пропускаем водителя с незавершённой регистрацией
+  if (driver && (!driver.full_name || !driver.car_plate)) {
+    console.log(`[OrderEngine] Пропускаем незавершившего регистрацию: ${driver.phone}`)
+    await q.moveDriverToEndOfQueue(driver.phone)
+    return dispatch_queue(orderId, [...tried, driver.phone], circles)
+  }
+
   if (!driver) {
     const allOnline = await q.getOnlineDriversQueue()
     if (!allOnline.length || circles >= config.MAX_CIRCLES) {
