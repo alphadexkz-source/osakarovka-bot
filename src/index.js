@@ -1,4 +1,5 @@
 require('dotenv').config();
+require('./logger'); // ПЕРВЫМ — патчит console.error/warn → logs/errors.log
 const express = require('express');
 
 process.on('uncaughtException', (err) => {
