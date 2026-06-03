@@ -7,13 +7,12 @@ const getGroq = () => {
   return groq;
 };
 
-// Инструменты которые может вызывать агент
 const TOOLS = [
   {
     type: 'function',
     function: {
       name: 'save_memory',
-      description: 'Сохранить важный факт, решение или предпочтение в долгосрочную память',
+      description: 'Сохранить важный факт в долгосрочную память',
       parameters: {
         type: 'object',
         properties: {
@@ -22,16 +21,12 @@ const TOOLS = [
             items: {
               type: 'object',
               properties: {
-                category: {
-                  type: 'string',
-                  enum: ['project', 'user_pref', 'tech', 'status', 'decision'],
-                  description: 'project=о боте, user_pref=предпочтения Алибека, tech=технические решения, status=текущий статус, decision=принятые решения',
-                },
-                key:       { type: 'string', description: 'Короткий ключ для поиска' },
-                content:   { type: 'string', description: 'Содержимое для запоминания' },
+                category: { type: 'string', enum: ['project','user_pref','tech','status','decision'] },
+                key:       { type: 'string' },
+                content:   { type: 'string' },
                 importance:{ type: 'integer', minimum: 1, maximum: 10 },
               },
-              required: ['category', 'key', 'content'],
+              required: ['category','key','content'],
             },
           },
         },
@@ -43,14 +38,11 @@ const TOOLS = [
     type: 'function',
     function: {
       name: 'create_task',
-      description: 'Создать задачу для Claude Code когда нужно что-то реализовать в коде бота',
+      description: 'Создать конкретную задачу для Claude Code. Вызывай ТОЛЬКО когда нужно что-то реализовать в коде.',
       parameters: {
         type: 'object',
         properties: {
-          task: {
-            type: 'string',
-            description: 'Подробное описание: что сделать, в каких файлах, почему, примеры если нужно',
-          },
+          task: { type: 'string', description: 'Точное описание что сделать, в каком файле, как проверить' },
         },
         required: ['task'],
       },
@@ -58,33 +50,42 @@ const TOOLS = [
   },
 ];
 
-const SYSTEM_PROMPT = (memoryBlock) => `Ты — ИИ-менеджер проекта еОсакаровка. Твой хозяин — Алибек (владелец WhatsApp такси-бота).
+const SYSTEM_PROMPT = (memoryBlock) => `Ты — технический менеджер проекта "еОсакаровка Сервис" (WhatsApp такси-бот, Осакаровка, Казахстан).
+Твой хозяин — Алибек, владелец бота. Пишет по-русски, неформально, с опечатками.
 
-## Проект
-еОсакаровка Сервис — WhatsApp-бот диспетчерской службы такси, посёлок Осакаровка, Казахстан.
-Стек: Node.js + Express + PostgreSQL (Supabase) + Green API (WhatsApp) + Groq AI.
-Сервер: GCP VM 34.40.3.202, PM2.
-Файлы: src/handlers/ (router, clientHandler, driverHandler, adminHandler), src/modules/ (orderEngine, driverManager, notificationService, addressDetector, tariffEngine, smartReply, voiceRecognizer, weatherService, infoService, timerService), src/db/queries.js, src/whatsapp/greenApi.js.
-Деплой: git push → SSH → git pull → pm2 restart osakarovka-bot.
+СТЕК: Node.js + Express + PostgreSQL (Supabase) + Green API (WhatsApp) + Groq AI + PM2 на GCP.
+ФАЙЛЫ: src/handlers/ (router, clientHandler, driverHandler, adminHandler), src/modules/ (orderEngine, driverManager, notificationService, addressDetector, tariffEngine, smartReply, voiceRecognizer, weatherService, infoService, timerService), src/db/queries.js.
+ДЕПЛОЙ: git push → SSH alphadexkz@34.40.3.202 → git pull → pm2 restart osakarovka-bot.
 
-## Твоя память
-${memoryBlock || '(пока пусто)'}
+=== ТВОЯ ПАМЯТЬ ===
+${memoryBlock || '(пусто)'}
+=== КОНЕЦ ПАМЯТИ ===
 
-## Твои задачи
-1. Понимать Алибека — он пишет по-русски, неформально, с опечатками
-2. Запоминать важное через save_memory (новые решения, статус задач, предпочтения)
-3. Когда нужно что-то в коде — вызывать create_task с чётким ТЗ для Claude Code
-4. Отвечать коротко и по делу
+=== ПРАВИЛА ЗАДАЧ ДЛЯ CLAUDE ===
 
-## Как писать задачи для Claude Code
-- Конкретно: «В файле src/handlers/driverHandler.js добавь...»
-- С контекстом: что сейчас не работает и почему нужно
-- Claude Code сам делает, коммитит и деплоит — просто опиши задачу
+ХОРОШАЯ задача (вызывай create_task):
+- "Добавить тарифы в таблицу tariffs через Supabase SQL: [список тарифов с ценами]"
+- "В src/handlers/driverHandler.js строка 155: добавить вывод рейтинга в статистику"
+- "Исправить баг: когда водитель пишет 'статистика' в офлайне — бот молчит. Файл: src/handlers/router.js"
+- "Добавить команду 'отзывы' в clientHandler.js которая показывает последние 5 оценок"
 
-## Формат ответов
-- Короткие ответы в Telegram Markdown
-- Если задача готова — в конце напиши: «✅ Задача создана для Claude»
-- Не объясняй очевидное`;
+ПЛОХАЯ задача (НЕ вызывай create_task):
+- "Изучи весь проект" — слишком общее, не задача
+- "Исправь баг с ночным тарифом" — если баг не подтверждён реальной жалобой
+- "Добавь функцию импорта тарифов" — если функция уже существует
+- "Проверь код на ошибки" — Claude уже делал аудит
+
+КОГДА создавать задачу:
+✅ Алибек говорит что хочет добавить/изменить/исправить конкретную вещь
+✅ Алибек описывает что не работает (с примером)
+✅ Алибек даёт данные для добавления (тарифы, адреса, тексты)
+❌ Алибек просит "изучить" или "проверить" без конкретики
+❌ Ты не уверён что именно нужно сделать в коде
+
+=== ФОРМАТ ===
+- Отвечай коротко, без лишних слов
+- Уточняй если задача непонятна: "Какие именно цены?" "На какой экран жалоба?"
+- Когда даёшь задачу Claude — она должна быть самодостаточной (всё что нужно внутри)`;
 
 const think = async (userMessage, memory, history) => {
   const memoryBlock = memory.length
@@ -97,14 +98,13 @@ const think = async (userMessage, memory, history) => {
     { role: 'user', content: userMessage },
   ];
 
-  // Первый вызов — с инструментами
   const first = await getGroq().chat.completions.create({
-    model: 'llama-3.3-70b-versatile',
+    model: 'qwen/qwen3-32b',
     messages,
     tools: TOOLS,
     tool_choice: 'auto',
-    max_tokens: 1500,
-    temperature: 0.7,
+    max_tokens: 2000,
+    temperature: 0.6,
   });
 
   const assistantMsg = first.choices[0].message;
@@ -114,32 +114,26 @@ const think = async (userMessage, memory, history) => {
   const memoriesToSave = [];
 
   for (const tc of toolCalls) {
-    const args = JSON.parse(tc.function.arguments);
-    if (tc.function.name === 'save_memory') {
-      memoriesToSave.push(...(args.items || []));
-    }
-    if (tc.function.name === 'create_task') {
-      claudeTask = args.task;
-    }
+    try {
+      const args = JSON.parse(tc.function.arguments);
+      if (tc.function.name === 'save_memory') memoriesToSave.push(...(args.items || []));
+      if (tc.function.name === 'create_task') claudeTask = args.task;
+    } catch(e) { console.error('[llm] tool parse error:', e.message); }
   }
 
   let reply = assistantMsg.content || '';
 
-  // Если были tool_calls — делаем второй вызов для текстового ответа
   if (toolCalls.length) {
-    const toolResults = toolCalls.map(tc => ({
-      role: 'tool',
-      tool_call_id: tc.id,
-      content: 'OK',
-    }));
-
     const second = await getGroq().chat.completions.create({
-      model: 'llama-3.3-70b-versatile',
-      messages: [...messages, assistantMsg, ...toolResults],
-      max_tokens: 600,
-      temperature: 0.7,
+      model: 'qwen/qwen3-32b',
+      messages: [
+        ...messages,
+        assistantMsg,
+        ...toolCalls.map(tc => ({ role: 'tool', tool_call_id: tc.id, content: 'OK' })),
+      ],
+      max_tokens: 500,
+      temperature: 0.6,
     });
-
     reply = second.choices[0].message.content || '';
   }
 
