@@ -1,3 +1,4 @@
+const db = require('../db/index');
 const q = require('../db/queries');
 const config = require('../config');
 const notify = require('./notificationService');
@@ -15,8 +16,6 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
 // Снижаем рейтинг водителя при пропуске заказа
 const penalizeSkip = async (driverPhone) => {
   try {
-    const db = require('../db/index');
-    // Снижаем рейтинг на 0.1 но не ниже 3.0
     await db.query(`
       UPDATE drivers SET
         rating = GREATEST(3.0, COALESCE(rating, 5.0) - 0.1)

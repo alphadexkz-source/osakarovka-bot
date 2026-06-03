@@ -8,8 +8,24 @@ const { newClientGreeting } = require('../modules/greetingService');
 const log = require('../logger');
 
 // 'на линии' убрано — встречается в вопросах («сколько машин на линии»)
-// 'лайн' убрано — слишком короткое, срабатывает на чужих словах
 const GO_ONLINE = ['на линию','выхожу','начинаю','работаю','онлайн','старт','начать','жұмыс','жұмысқа','линияға шығам','шығамын'];
+
+const DRIVER_CMDS = [
+  'статистика','стат','итоги','заработок','қанша',
+  'очередь','позиция','кезек',
+  'принял','принять','беру','аламын','принимаю',
+  'прибыл','приехал','на месте','подъехал','стою',
+  'свободен','завершил','бостымын','доехали',
+  'ложный','нет клиента','жалған','пропустить','пропуск','откізу',
+  'мой код','реферал','faq','фак','перерыв',
+];
+
+const DRIVER_ONLY_STATES = ['driver_as_client', 'driver_chat', 'cancel_reason'];
+
+const DRIVER_BUTTON_PREFIXES = [
+  'go_online','go_offline','accept_','skip_','arrived_',
+  'done_','false_','chat_','cancel_driver_','driver_cancel_',
+];
 
 const parse = (body) => {
   console.log('[WEBHOOK TYPE]', body.typeWebhook, body.senderData?.sender);
@@ -21,14 +37,61 @@ const parse = (body) => {
   const name = String(senderData.senderName || 'Пользователь').slice(0, 100);
   let type = 'text', text = '', buttonId = null, mediaUrl = null;
   switch (messageData.typeMessage) {
-    case 'textMessage': text = String(messageData.textMessageData?.textMessage || ''); type = 'text'; break;
-    case 'buttonsResponseMessage': buttonId = String(messageData.buttonsResponseMessage?.selectedButtonId || ''); text = String(messageData.buttonsResponseMessage?.selectedButtonDisplayText || ''); type = 'button'; break;
-    case 'listResponseMessage': buttonId = String(messageData.listResponseMessage?.listResponseRowId || ''); text = String(messageData.listResponseMessage?.title || ''); type = 'button'; break;
-    case 'audioMessage': case 'pttMessage': mediaUrl = messageData.fileMessageData?.downloadUrl || null; type = 'voice'; break;
-    case 'imageMessage': mediaUrl = messageData.fileMessageData?.downloadUrl; text = String(messageData.fileMessageData?.caption || ''); type = 'image'; break;
-    default: text = String(messageData.textMessageData?.textMessage || ''); type = 'other';
+    case 'textMessage':
+      text = String(messageData.textMessageData?.textMessage || '');
+      type = 'text';
+      break;
+    case 'buttonsResponseMessage':
+      buttonId = String(messageData.buttonsResponseMessage?.selectedButtonId || '');
+      text = String(messageData.buttonsResponseMessage?.selectedButtonDisplayText || '');
+      type = 'button';
+      break;
+    case 'listResponseMessage':
+      buttonId = String(messageData.listResponseMessage?.listResponseRowId || '');
+      text = String(messageData.listResponseMessage?.title || '');
+      type = 'button';
+      break;
+    case 'audioMessage':
+    case 'pttMessage':
+      mediaUrl = messageData.fileMessageData?.downloadUrl || null;
+      type = 'voice';
+      break;
+    case 'imageMessage':
+      mediaUrl = messageData.fileMessageData?.downloadUrl;
+      text = String(messageData.fileMessageData?.caption || '');
+      type = 'image';
+      break;
+    default:
+      text = String(messageData.textMessageData?.textMessage || '');
+      type = 'other';
   }
   return { phone, name, type, text: text.trim().slice(0, 500), buttonId, mediaUrl, messageId: body.idMessage || null };
+};
+
+// Определяет нужно ли направить сообщение от водителя в driverHandler.
+// Возвращает true если надо, false если надо передать в clientHandler.
+const shouldRouteAsDriver = (msg, session, driverStatus, lo) => {
+  if (driverStatus === 'online' || driverStatus === 'busy') return true;
+
+  // Голос — всегда в driverHandler (офлайн-водитель говорит «на линию» голосом)
+  if (msg.type === 'voice') return true;
+
+  // Водительские состояния FSM
+  if (session?.state?.startsWith('reg_')) return true;
+  if (session?.state?.startsWith('edit_')) return true;
+  if (DRIVER_ONLY_STATES.includes(session?.state)) return true;
+
+  // Кнопки водителя при offline
+  if (msg.type === 'button' && msg.buttonId &&
+      DRIVER_BUTTON_PREFIXES.some(p => msg.buttonId.startsWith(p))) return true;
+
+  // Ключевые слова выхода на линию
+  if (GO_ONLINE.some(w => lo.includes(w))) return true;
+
+  // Команды водителя
+  if (DRIVER_CMDS.some(w => lo.includes(w))) return true;
+
+  return false;
 };
 
 const route = async (body) => {
@@ -48,22 +111,23 @@ const route = async (body) => {
     log.msg(phone, role, session?.state || 'idle', msg.type, msg.text);
     const lo = (text||'').toLowerCase().trim();
 
-    // АДМИН ПАНЕЛЬ
-    if (session?.state === 'admin_mode' || (session?.state?.startsWith('admin_') && session?.state !== 'admin_exit')) {
+    // ─── АДМИН ПАНЕЛЬ ─────────────────────────────────────────
+    if (session?.state === 'admin_mode' ||
+        (session?.state?.startsWith('admin_') && session?.state !== 'admin_exit')) {
       return adminHandler.handle(phone, msg, session);
     }
 
-    // ВЫХОД ИЗ АДМИНКИ
+    // ─── ВЫХОД ИЗ АДМИНКИ ─────────────────────────────────────
     if (session?.state === 'admin_exit') {
       await q.clearSession(phone);
-      if (GO_ONLINE.some(w => lo.includes(w))) {
-        const driver = await q.getDriver(phone);
-        if (driver) return driverHandler.handle(phone, msg, { state: 'idle', ctx: {} });
+      const driver = await q.getDriver(phone);
+      if (driver && GO_ONLINE.some(w => lo.includes(w))) {
+        return driverHandler.handle(phone, msg, { state: 'idle', ctx: {} });
       }
       return clientHandler.handle(phone, name, msg, { state: 'idle', ctx: {} });
     }
 
-    // КОД ВОДИТЕЛЯ
+    // ─── КОД ВОДИТЕЛЯ ─────────────────────────────────────────
     const isDriverCode = text.toUpperCase().trim() === config.DRIVER_CODE.toUpperCase();
     if (isDriverCode && role !== 'driver') {
       if (role === 'new' || !user) {
@@ -75,11 +139,13 @@ const route = async (body) => {
         await q.createDriver(updated.id).catch(() => {});
       }
       await q.setSession(phone, 'reg_name', {});
-      await wa.sendText(phone, 'Код принят! Добро пожаловать!\n\nРегистрация водителя (5 шагов)\n\nШаг 1/5: Введите ваше полное имя (ФИО):');
+      await wa.sendText(phone,
+        'Код принят! Добро пожаловать!\n\nРегистрация водителя (5 шагов)\n\nШаг 1/5: Введите ваше полное имя (ФИО):'
+      );
       return;
     }
 
-    // НОВЫЙ ПОЛЬЗОВАТЕЛЬ
+    // ─── НОВЫЙ ПОЛЬЗОВАТЕЛЬ ───────────────────────────────────
     if (role === 'new' || !user) {
       await q.createUser(phone, name, 'client');
       await q.setSession(phone, 'idle', {});
@@ -89,61 +155,22 @@ const route = async (body) => {
         '📍 Просто напишите *куда нужно ехать* — найдём водителя!\n\n' +
         '🎁 Каждая *10-я поездка* — бесплатно!'
       );
-      // Не передаём первое сообщение в clientHandler — пользователь ещё не видел приветствие
       return;
     }
 
-    // ВОДИТЕЛЬ
-    if (role === 'driver') {
+    // ─── ВОДИТЕЛЬ или АДМИН-ВОДИТЕЛЬ ──────────────────────────
+    if (role === 'driver' || role === 'admin') {
       await q.updateDriverActivity(phone).catch(() => {});
       const driver = await q.getDriver(phone);
-      const status = driver?.status || 'offline';
-      if (status === 'online' || status === 'busy') return driverHandler.handle(phone, msg, session);
-      // FIX: голосовые всегда идут в driverHandler (offline-водитель говорит «на линию» голосом)
-      if (msg.type === 'voice') return driverHandler.handle(phone, msg, session);
-      // FIX: driver_as_client и cancel_reason — состояния водителя, не клиента
-      const driverOnlyStates = ['driver_as_client', 'driver_chat', 'cancel_reason'];
-      if (session?.state?.startsWith('reg_') ||
-          session?.state?.startsWith('edit_') ||
-          driverOnlyStates.includes(session?.state)) return driverHandler.handle(phone, msg, session);
-      // FIX: кнопки водителя при offline — в driverHandler
-      const driverButtonPfx = ['go_online','go_offline','accept_','skip_','arrived_','done_','false_','chat_','cancel_driver_','driver_cancel_'];
-      if (msg.type === 'button' && msg.buttonId && driverButtonPfx.some(p => msg.buttonId.startsWith(p)))
-        return driverHandler.handle(phone, msg, session);
-      if (GO_ONLINE.some(w => lo.includes(w))) return driverHandler.handle(phone, msg, session);
-      // FIX: команды водителя при offline — в driverHandler (не в clientHandler где попадают в Groq)
-      const DRIVER_CMDS = [
-        'статистика','стат','итоги','заработок','қанша',
-        'очередь','позиция','кезек',
-        'принял','принять','беру','аламын','принимаю',
-        'прибыл','приехал','на месте','подъехал','стою',
-        'свободен','завершил','бостымын','доехали',
-        'ложный','нет клиента','жалған','пропустить','пропуск','откізу',
-        'мой код','реферал','faq','фак','перерыв',
-      ];
-      if (DRIVER_CMDS.some(w => lo.includes(w))) return driverHandler.handle(phone, msg, session);
-      return clientHandler.handle(phone, name, msg, session);
-    }
+      const driverStatus = driver?.status || 'offline';
 
-    // АДМИН
-    if (role === 'admin') {
-      await q.updateDriverActivity(phone).catch(() => {});
-      const driver = await q.getDriver(phone);
-      const status = driver?.status || 'offline';
-      if (status === 'online' || status === 'busy') return driverHandler.handle(phone, msg, session);
-      // FIX: голос от офлайн-админа-водителя → driverHandler
-      if (msg.type === 'voice' && driver) return driverHandler.handle(phone, msg, session);
-      // FIX: если админ-водитель в режиме driver_as_client — в driverHandler
-      if (['driver_as_client', 'driver_chat', 'cancel_reason'].includes(session?.state) && driver)
+      if (driver && shouldRouteAsDriver(msg, session, driverStatus, lo)) {
         return driverHandler.handle(phone, msg, session);
-      if (GO_ONLINE.some(w => lo.includes(w)) && driver) return driverHandler.handle(phone, msg, session);
-      if (driver) {
-        const DRIVER_CMDS = ['статистика','стат','итоги','заработок','қанша','очередь','позиция','кезек','принял','прибыл','на месте','стою','свободен','бостымын','ложный','нет клиента','жалған','пропустить','откізу','мой код','реферал','faq','фак','перерыв'];
-        if (DRIVER_CMDS.some(w => lo.includes(w))) return driverHandler.handle(phone, msg, session);
       }
       return clientHandler.handle(phone, name, msg, session);
     }
 
+    // ─── ОБЫЧНЫЙ КЛИЕНТ ───────────────────────────────────────
     return clientHandler.handle(phone, name, msg, session);
 
   } catch (err) {
