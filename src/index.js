@@ -1,5 +1,6 @@
 require('dotenv').config();
-require('./logger'); // ПЕРВЫМ — патчит console.error/warn → logs/errors.log
+const log = require('./logger');
+log.initFileLogging(); // ПЕРВЫМ — патчит console.error/warn → logs/errors.log
 const express = require('express');
 
 process.on('uncaughtException', (err) => {
@@ -161,6 +162,12 @@ async function recoverOnStartup() {
     console.error('[Startup recovery]', err.message);
   }
 }
+
+// Глобальный обработчик ошибок Express
+app.use((err, req, res, next) => {
+  console.error('[Express Error]', err.message);
+  res.status(500).json({ error: 'Internal Server Error' });
+});
 
 const server = app.listen(config.PORT, async () => {
   console.log(`\n🚖 еОсакаровка Сервис Bot`);

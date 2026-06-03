@@ -1,397 +1,166 @@
-const wa = require('../whatsapp/greenApi');
-const q = require('../db/queries');
-const driverMgr = require('../modules/driverManager');
-const orderEngine = require('../modules/orderEngine');
-const chatRelay = require('../modules/chatRelay');
-const notify = require('../modules/notificationService');
-const tariff = require('../modules/tariffEngine');
-const config = require('../config');
-const { transcribe: transcribeVoice } = require('../modules/voiceCommandHandler');
-const { getGroqDriverReply } = require('../modules/smartReply');
-const { getWeather, formatWeatherBrief } = require('../modules/weatherService');
+const wa = require('../whatsapp/greenApi')
+const q = require('../db/queries')
+const driverMgr = require('../modules/driverManager')
+const orderEngine = require('../modules/orderEngine')
+const chatRelay = require('../modules/chatRelay')
+const tariff = require('../modules/tariffEngine')
+const { transcribe: transcribeVoice } = require('../modules/voiceCommandHandler')
+const { getGroqDriverReply } = require('../modules/smartReply')
+const driverRegistrationHandler = require('./driverRegistrationHandler')
+const driverOrderHandler = require('./driverOrderHandler')
+const driverCommandHandler = require('./driverCommandHandler')
 
-const breakTimers = new Map(); // phone → timer ID для отмены при ручном выходе на линию
+const { KW: ORDER_KW, match } = driverOrderHandler
+const { KW: CMD_KW, clearBreakTimer } = driverCommandHandler
 
-const KW = {
-  ONLINE:  ['на линию','линию','выхожу','начинаю','работаю','онлайн','старт','начать','работать',
-             'жұмыс','жұмысқа','линияға шығам','шығамын','приступаю','начинать'],
-  OFFLINE: ['с линии','ухожу','заканчиваю','офлайн','оффлайн','стоп','отдых','отдыхаю','перерыв',
-             'закончил','хватит','линиядан','аяқтадым'],
-  ACCEPT:  ['принял','принять','беру','возьму','ok','ок','да','иду','еду',
-             'қабылдадым','аламын','принимаю','берем','принимаем'],
-  ARRIVED: ['прибыл','приехал','на месте','подъехал','жду','стою','стоянка',
-             'келдім','жеттім','у клиента','доехал','здесь'],
-  DONE:    ['свободен','завершил','готово','доехали','доставил','освободился',
-             'бостымын','клиент вышел','довёз','закончили','приехали','всё'],
-  FALSE:   ['ложный','нет клиента','никого нет','пусто','ложный вызов','жалған','клиента нет','нет никого'],
-  SKIP:    ['пропустить','пропуск','пропускаю','следующий','откізу','пропусти'],
-  STATS:   ['статистика','стат','итоги','сколько заработал','мои поездки','қанша','заработок','поездки'],
-  EDIT:    ['изменить','изменить данные','сменить данные','редактировать'],
-  QUEUE:   ['очередь','моя очередь','где я','позиция','кезек','кезегім'],
-};
+const handleCancelReason = async (phone, text, ctx) => {
+  const order = await q.getActiveOrderByDriver(phone)
+  if (!order) { await q.clearSession(phone); return }
+  await orderEngine.cancel(order.id, text?.slice(0, 200) || 'Водитель отменил')
+}
 
-const match = (text, keywords) => keywords.some(w => text.includes(w));
+const handleAsClient = async (phone, msg, session) => {
+  const { text, type, buttonId } = msg
+  const ctx = session?.ctx || {}
+  const lo = (text||'').toLowerCase().trim()
+  if (type === 'button') {
+    if (buttonId === 'confirm_order') { if (!ctx.destination) return; await orderEngine.create(phone, ctx.destination, { price: ctx.price, tariff: ctx.tariff_id ? { id: ctx.tariff_id } : null }); return }
+    if (buttonId === 'cancel_new')    { await q.clearSession(phone); await wa.sendText(phone, 'Отменено.'); return }
+    if (buttonId === 'order_as_client') { await q.setSession(phone, 'driver_as_client', {}); await wa.sendText(phone, 'Куда нужно ехать?'); return }
+    if (buttonId === 'cancel_order')  { const order = await q.getActiveOrderByClient(phone); if (order) await orderEngine.cancel(order.id, 'Отменён'); else { await q.clearSession(phone); await wa.sendText(phone, 'Нет заказа.') } return }
+    return
+  }
+  if (!text || text.length < 2) return
+  if (match(lo, CMD_KW.ONLINE)) {
+    await q.clearSession(phone)
+    const r = await driverMgr.goOnline(phone)
+    if (r.error === 'no_balance') { await wa.sendText(phone, 'Баланс = 0.'); return }
+    const pos = await q.getDriverQueuePosition(phone)
+    const cnt = (await q.getOnlineDriversQueue()).length
+    await wa.sendButtons(phone, 'Вы на линии! ' + pos + '-й из ' + cnt + '.', [{ id:'go_offline', text:'Уйти с линии' }])
+    return
+  }
+  if (ctx.confirming) {
+    if (['да','ок','ok','yes','поехали','иә'].includes(lo)) { await orderEngine.create(phone, ctx.destination, { price: ctx.price, tariff: ctx.tariff_id ? { id: ctx.tariff_id } : null }); return }
+    if (['нет','отмена','cancel','жоқ'].includes(lo))       { await q.clearSession(phone); await wa.sendText(phone, 'Отменено.'); return }
+  }
+  const active = await q.getActiveOrderByClient(phone)
+  if (active) { await wa.sendText(phone, 'У вас уже есть активный заказ!'); return }
+  const pi = await tariff.getPrice(text)
+  const nightNote = pi.isNight ? ' (ночной тариф)' : ''
+  await wa.sendButtons(phone, 'Ваш заказ:\n\nКуда: ' + text + '\nЦена: ' + pi.price + ' тг' + nightNote + '\n\nПодтвердить?', [{ id:'confirm_order', text:'Да, поехали!' }, { id:'cancel_new', text:'Отмена' }])
+  await q.setSession(phone, 'driver_as_client', { confirming: true, destination: text, price: pi.price, tariff_id: pi.tariff?.id || null })
+}
 
 const handle = async (phone, msg, session) => {
-  let { text, type, buttonId, mediaUrl } = msg;
-  const state = session?.state || 'idle';
+  let { text, type, buttonId, mediaUrl } = msg
+  const state = session?.state || 'idle'
   try {
-    // ГОЛОСОВОЕ
+    // 1. ГОЛОСОВОЕ — сложная нормализация остаётся здесь
     if (type === 'voice') {
-      if (!mediaUrl) { await wa.sendText(phone, '🎙 Голосовое не получено. Напишите команду.'); return; }
-      const voiceText = await transcribeVoice(mediaUrl, phone);
-      if (!voiceText) { await wa.sendText(phone, '🎤 Не удалось распознать. Напишите команду.'); return; }
+      if (!mediaUrl) { await wa.sendText(phone, '🎙 Голосовое не получено. Напишите команду.'); return }
+      const voiceText = await transcribeVoice(mediaUrl, phone)
+      if (!voiceText) { await wa.sendText(phone, '🎤 Не удалось распознать. Напишите команду.'); return }
 
       // Голос в режиме «водитель как клиент» → обработка как адрес/текст клиента
       if (state === 'driver_as_client') {
-        return handleAsClient(phone, { ...msg, text: voiceText, type: 'text' }, session);
+        return handleAsClient(phone, { ...msg, text: voiceText, type: 'text' }, session)
       }
       // Голос во время фото → нельзя голосом, нужно фото
       if (state === 'reg_photo' || state === 'edit_photo') {
-        await wa.sendText(phone, '📸 Для этого шага отправьте ФОТО автомобиля.');
-        return;
+        await wa.sendText(phone, '📸 Для этого шага отправьте ФОТО автомобиля.')
+        return
       }
       // Голос во время регистрации/редактирования → текстовый ввод данных
-      if (state.startsWith('reg_')) { return handleRegistration(phone, { ...msg, text: voiceText, type: 'text' }, state); }
-      if (state.startsWith('edit_')) { return handleEdit(phone, { ...msg, text: voiceText, type: 'text' }, state); }
+      if (state.startsWith('reg_'))  { return driverRegistrationHandler.handleRegistration(phone, { ...msg, text: voiceText, type: 'text' }, state) }
+      if (state.startsWith('edit_')) { return driverRegistrationHandler.handleEdit(phone, { ...msg, text: voiceText, type: 'text' }, state) }
 
       // Нормализация: убираем пунктуацию, исправляем формы которые путает Whisper
       const vlo = voiceText.toLowerCase().trim()
         .replace(/[.,!?;:]+/g, '')
-        .replace(/слини[йеяь]?/g, 'с линии')          // "Слини/Слиний" → "с линии"
-        .replace(/налин[иую][юй]?/g, 'на линию')       // "Налинию" → "на линию"
+        .replace(/слини[йеяь]?/g, 'с линии')
+        .replace(/налин[иую][юй]?/g, 'на линию')
         .replace(/\bлинией\b/g, 'линии').replace(/\bлинею\b/g, 'линию')
         .replace(/\bсвободный\b|\bсвободна\b|\bсвободно\b/g, 'свободен')
         .replace(/\bприбыла\b|\bприбыло\b/g, 'прибыл')
         .replace(/\bложная\b|\bложное\b/g, 'ложный')
         .replace(/\bпринято\b|\bприняла\b|\bпринятый\b/g, 'принял')
         .replace(/\bдоехала\b/g, 'доехали').replace(/\bзавершила\b/g, 'завершил')
-        .trim();
+        .trim()
 
-      const driver2 = await q.getDriver(phone);
-      if (!driver2) { await wa.sendText(phone, '⚠️ Водитель не найден.'); return; }
+      const driver2 = await q.getDriver(phone)
+      if (!driver2) { await wa.sendText(phone, '⚠️ Водитель не найден.'); return }
       if (driver2?.status === 'busy') {
-        const order2 = await q.getActiveOrderByDriver(phone);
+        const order2 = await q.getActiveOrderByDriver(phone)
         if (order2) {
-          if (match(vlo, KW.ARRIVED)) { await orderEngine.arrived(order2.id, phone); return; }
-          if (match(vlo, KW.DONE))    { await orderEngine.complete(order2.id, phone); return; }
-          if (match(vlo, KW.FALSE))   { await orderEngine.falseCall(order2.id, phone); return; }
+          if (await driverOrderHandler.handleBusyCommands(phone, vlo, order2)) return
         }
       }
-      if (match(vlo, KW.ACCEPT)) { const p2 = await q.getPendingOrderForDriver(phone); if (p2) await orderEngine.accept(p2.id, phone); else await wa.sendText(phone, 'Нет предложения.'); return; }
-      if (match(vlo, KW.SKIP))   { await q.moveDriverToEndOfQueue(phone); await wa.sendText(phone, 'Пропущено.'); return; }
-      if (match(vlo, KW.ONLINE)) {
-        await q.clearSession(phone);
-        const r2 = await driverMgr.goOnline(phone);
-        if (r2.error === 'no_balance') { await wa.sendText(phone, 'Баланс = 0. Обратитесь к администратору.'); return; }
-        const pos2 = await q.getDriverQueuePosition(phone);
-        const cnt2 = (await q.getOnlineDriversQueue()).length;
-        await wa.sendText(phone, '🟢 *Вы на линии!*\n📋 Позиция: *' + pos2 + '-й* из *' + cnt2 + '* водителей.');
-        return;
+      if (await driverOrderHandler.handleAcceptSkip(phone, vlo)) return
+      if (match(vlo, CMD_KW.ONLINE)) {
+        await q.clearSession(phone)
+        const r2 = await driverMgr.goOnline(phone)
+        if (r2.error === 'no_balance') { await wa.sendText(phone, 'Баланс = 0. Обратитесь к администратору.'); return }
+        const pos2 = await q.getDriverQueuePosition(phone)
+        const cnt2 = (await q.getOnlineDriversQueue()).length
+        await wa.sendText(phone, '🟢 *Вы на линии!*\n📋 Позиция: *' + pos2 + '-й* из *' + cnt2 + '* водителей.')
+        return
       }
-      if (match(vlo, KW.OFFLINE)) { await driverMgr.goOffline(phone); await wa.sendText(phone, '⚫ Ушли с линии. Отдыхайте!'); return; }
-      if (match(vlo, KW.STATS))   { const stats2 = await q.getDriverTodayStats(driver2?.id); await notify.driverStats(phone, driver2, stats2); return; }
-      const groqVoice = await getGroqDriverReply(voiceText, driver2?.full_name, null, { status: driver2?.status }).catch(() => null);
-      await wa.sendText(phone, groqVoice || '🎤 Сказано: *"' + voiceText + '"*\n\nКоманды: *принял, прибыл, свободен, ложный, на линию, с линии, статистика*');
-      return;
+      if (match(vlo, CMD_KW.OFFLINE)) { await driverMgr.goOffline(phone); await wa.sendText(phone, '⚫ Ушли с линии. Отдыхайте!'); return }
+      if (match(vlo, CMD_KW.STATS))   { const stats2 = await q.getDriverTodayStats(driver2?.id); await require('../modules/notificationService').driverStats(phone, driver2, stats2); return }
+      const groqVoice = await getGroqDriverReply(voiceText, driver2?.full_name, null, { status: driver2?.status }).catch(() => null)
+      await wa.sendText(phone, groqVoice || '🎤 Сказано: *"' + voiceText + '"*\n\nКоманды: *принял, прибыл, свободен, ложный, на линию, с линии, статистика*')
+      return
     }
 
-    if (state.startsWith('reg_'))  return await handleRegistration(phone, msg, state);
-    if (state.startsWith('edit_')) return await handleEdit(phone, msg, state);
-    if (state === 'cancel_reason') return await handleCancelReason(phone, text, session?.ctx || {});
-    if (type === 'button' && buttonId) return await handleButton(phone, buttonId);
+    // 2. Состояния регистрации/редактирования
+    if (state.startsWith('reg_'))  return driverRegistrationHandler.handleRegistration(phone, msg, state)
+    if (state.startsWith('edit_')) return driverRegistrationHandler.handleEdit(phone, msg, state)
+
+    // 3. Причина отмены
+    if (state === 'cancel_reason') return handleCancelReason(phone, text, session?.ctx || {})
+
+    // 4. Кнопки
+    if (type === 'button' && buttonId) {
+      if (await driverOrderHandler.handleOrderButtons(phone, buttonId)) return
+      await driverCommandHandler.handleCommandButtons(phone, buttonId)
+      return
+    }
+
+    // 5. Чат водителя
     if (state === 'driver_chat') {
-      if ((text||'').toLowerCase() === 'стоп') { await q.clearSession(phone); await wa.sendText(phone, 'Чат завершён.'); return; }
-      return chatRelay.fromDriver(phone, text);
+      if ((text||'').toLowerCase() === 'стоп') { await q.clearSession(phone); await wa.sendText(phone, 'Чат завершён.'); return }
+      return chatRelay.fromDriver(phone, text)
     }
-    if (state === 'driver_as_client') return handleAsClient(phone, msg, session);
 
-    const driver = await q.getDriver(phone);
-    if (!driver) { await wa.sendText(phone, 'Водитель не найден.'); return; }
-    const lo = (text||'').toLowerCase().trim();
+    // 6. Водитель как клиент
+    if (state === 'driver_as_client') return handleAsClient(phone, msg, session)
 
-    // В ПОЕЗДКЕ
+    const driver = await q.getDriver(phone)
+    if (!driver) { await wa.sendText(phone, 'Водитель не найден.'); return }
+    const lo = (text||'').toLowerCase().trim()
+
+    // 7. В поездке
     if (driver.status === 'busy') {
-      const order = await q.getActiveOrderByDriver(phone);
+      const order = await q.getActiveOrderByDriver(phone)
       if (order) {
-        if (match(lo, KW.ARRIVED)) { await orderEngine.arrived(order.id, phone); return; }
-        if (match(lo, KW.DONE))    { await orderEngine.complete(order.id, phone); return; }
-        if (match(lo, KW.FALSE))   { await orderEngine.falseCall(order.id, phone); return; }
-        await wa.sendText(phone, '🚗 *Вы в поездке.*\n\n📍 *прибыл* — приехали к клиенту\n✅ *свободен* — довезли клиента\n🚫 *ложный* — клиента нет на месте');
-        return;
+        if (await driverOrderHandler.handleBusyCommands(phone, lo, order)) return
+        await wa.sendText(phone, '🚗 *Вы в поездке.*\n\n📍 *прибыл* — приехали к клиенту\n✅ *свободен* — довезли клиента\n🚫 *ложный* — клиента нет на месте')
+        return
       }
     }
 
-    // ─── FAQ ВОДИТЕЛЯ ─────────────────────────────────────────
-    if (['faq','фак','инструкция','помощь','help','что умеешь','как работает','команды'].some(w => lo === w || lo.startsWith(w))) {
-      await wa.sendText(phone,
-        '📋 *FAQ водителя — еОсакаровка Сервис*\n\n' +
-        '🟢 *Выход на работу:*\n• *"на линию"* — начать работу\n• *"с линии"* — закончить работу\n• *"перерыв 20"* — пауза 20 мин (авто-возврат)\n\n' +
-        '🚖 *Управление заказом:*\n• *принял / да / ok* — принять заказ\n• *прибыл / на месте* — приехал к клиенту\n• *свободен / доехали* — поездка завершена\n• *ложный* — клиента нет на месте\n\n' +
-        '📊 *Статистика:*\n• *"статистика"* — заработок за день/неделю/месяц\n• *"очередь"* — моя позиция в очереди\n\n' +
-        '✏️ *Изменить данные:*\n• *"имя"* — изменить ФИО\n• *"авто"* — марку и номер\n• *"фото"* — фото авто\n• *"цвет"* — цвет авто\n\n' +
-        '🎙 *Все команды работают голосом!*\n📦 Баланс = кол-во заказов. При 0 — обратитесь к администратору.'
-      );
-      return;
-    }
+    // 8. Принял/пропустил (только если есть pending)
+    if (await driverOrderHandler.handleAcceptSkip(phone, lo)) return
 
-    if (match(lo, KW.ACCEPT)) { const pending = await q.getPendingOrderForDriver(phone); if (pending) await orderEngine.accept(pending.id, phone); else await wa.sendText(phone, 'Нет активного предложения.'); return; }
-    if (match(lo, KW.SKIP))   { await q.moveDriverToEndOfQueue(phone); await wa.sendText(phone, 'Пропущено.'); return; }
-
-    if (match(lo, KW.ONLINE)) {
-      if (breakTimers.has(phone)) { clearTimeout(breakTimers.get(phone)); breakTimers.delete(phone); }
-      await q.clearSession(phone);
-      const r = await driverMgr.goOnline(phone);
-      if (r.error === 'no_balance') { await wa.sendText(phone, '🔴 Баланс = 0.\nОбратитесь к администратору для пополнения.'); return; }
-      if (r.error === 'in_trip')    { await wa.sendText(phone, '🚗 Вы сейчас в поездке.'); return; }
-      const pos = await q.getDriverQueuePosition(phone);
-      const cnt = (await q.getOnlineDriversQueue()).length;
-      await wa.sendButtons(phone, '🟢 *Вы на линии!*\n📋 Позиция: *' + pos + '-й* из *' + cnt + '* водителей.\n\nОжидайте заказы!', [{ id:'go_offline', text:'⚫ Уйти с линии' }]);
-      return;
-    }
-
-    if (match(lo, KW.OFFLINE)) {
-      await driverMgr.goOffline(phone);
-      await wa.sendButtons(phone, '⚫ *Вы ушли с линии.*\n\nОтдыхайте! Когда будете готовы — возвращайтесь.', [{ id:'go_online', text:'🟢 Выйти на линию' }, { id:'order_as_client', text:'🚖 Заказать такси' }]);
-      return;
-    }
-
-    if (match(lo, KW.STATS)) { const stats = await q.getDriverTodayStats(driver.id); await notify.driverStats(phone, driver, stats); return; }
-
-    // ─── МОЙ РЕФЕРАЛЬНЫЙ КОД (для водителей) ─────────────────
-    if (['мой код','реферал','пригласить','мой реферал','реферальный код'].some(w => lo.includes(w))) {
-      const code = await q.getOrCreateReferralCode(phone).catch(() => null);
-      if (!code) { await wa.sendText(phone, '❌ Не удалось получить код.'); return; }
-      await wa.sendText(phone,
-        '🤝 *Ваш реферальный код для водителей:*\n\n' +
-        '🔑 *' + code + '*\n\n' +
-        'Когда новый водитель введёт ваш код при регистрации — вы получите *+20 заказов* к балансу!\n\n' +
-        'Поделитесь кодом с теми кто хочет работать в такси.'
-      );
-      return;
-    }
-
-    if (match(lo, KW.QUEUE)) {
-      if (driver.status !== 'online') {
-        await wa.sendText(phone, '⚫ Вы не на линии.\nНапишите *"на линию"* чтобы начать работу.');
-      } else {
-        const pos = await q.getDriverQueuePosition(phone);
-        const online = await q.getOnlineDriversQueue();
-        await wa.sendText(phone, '📋 *Ваша позиция в очереди:*\n\n🔢 *' + pos + '-й* из *' + online.length + '* водителей онлайн.');
-      }
-      return;
-    }
-
-    // ─── ПЕРЕРЫВ НА N МИНУТ ───────────────────────────────────
-    const breakMatch = lo.match(/перерыв\s+(\d+)/);
-    if (breakMatch) {
-      const mins = Math.min(parseInt(breakMatch[1]), 180);
-      await driverMgr.goOffline(phone);
-      await wa.sendText(phone, '⏸ *Перерыв ' + mins + ' мин.*\n\nОтдыхайте! ☕ Автоматически верну вас на линию через *' + mins + ' мин.*');
-      // Сохраняем timer ID в сессии чтобы отменить при ручном выходе на линию
-      const breakTimer = setTimeout(async () => {
-        try {
-          breakTimers.delete(phone);
-          const d = await q.getDriver(phone);
-          if (d?.status === 'offline') {
-            const r = await driverMgr.goOnline(phone);
-            if (r.success) {
-              const pos = await q.getDriverQueuePosition(phone);
-              const cnt = (await q.getOnlineDriversQueue()).length;
-              await wa.sendText(phone, '🟢 *Перерыв закончился!*\n\nВы снова на линии — *' + pos + '-й* из *' + cnt + '* водителей. Удачных заказов! 🚖');
-            }
-          }
-        } catch(e) { console.error('[break timer]', e.message); }
-      }, mins * 60 * 1000);
-      breakTimers.set(phone, breakTimer);
-      return;
-    }
-
-    if (match(lo, KW.EDIT)) {
-      await wa.sendText(phone, '✏️ *Что изменить?*\n\n*имя* — изменить ФИО\n*авто* — марку и номер\n*фото* — фото авто\n*цвет* — цвет автомобиля');
-      return;
-    }
-    if (['имя','фио'].includes(lo))  { await q.setSession(phone, 'edit_name', {}); await wa.sendText(phone, 'Введите новое ФИО:'); return; }
-    if (['авто','номер'].includes(lo)) { await q.setSession(phone, 'edit_car', {}); await wa.sendText(phone, 'Введите марку и номер через запятую:'); return; }
-    if (['фото'].includes(lo))        { await q.setSession(phone, 'edit_photo', {}); await wa.sendText(phone, 'Отправьте фото автомобиля:'); return; }
-    if (['цвет'].includes(lo))        { await q.setSession(phone, 'edit_color', {}); await wa.sendText(phone, 'Введите цвет автомобиля:'); return; }
-
-    if (!lo) { const stats = await q.getDriverTodayStats(driver.id); await notify.driverStats(phone, driver, stats); return; }
-
-    // GROQ умный ответ
-    const stats = await q.getDriverTodayStats(driver.id);
-    const queuePos = await q.getDriverQueuePosition(phone).catch(() => null);
-    const onlineList = await q.getOnlineDriversQueue().catch(() => []);
-    const groqReply = await getGroqDriverReply(text, driver.full_name, stats, {
-      status: driver.status,
-      queuePos,
-      queueTotal: onlineList.length
-    }).catch(() => null);
-
-    if (groqReply) {
-      await wa.sendText(phone, groqReply);
-    } else {
-      const btns = driver.status === 'online'
-        ? [{ id:'go_offline', text:'⚫ Уйти с линии' }]
-        : [{ id:'go_online', text:'🟢 Выйти на линию' }, { id:'order_as_client', text:'🚖 Заказать такси' }];
-      await wa.sendButtons(phone,
-        '📋 *Команды:*\n\n🟢 *на линию* — начать работу\n⚫ *с линии* — завершить\n📊 *статистика* — заработок\n🔢 *очередь* — моя позиция\n✏️ *изменить* — обновить данные',
-        btns
-      );
-    }
+    // 9. Команды водителя (онлайн/офлайн/стат/и.т.д.)
+    return driverCommandHandler.handleCommand(phone, lo, driver, session)
 
   } catch (err) {
-    const log = require('../logger');
-    log.error('driverHandler', err, { phone, state });
-    await wa.sendText(phone, 'Произошла ошибка.').catch(() => {});
+    const log = require('../logger')
+    log.error('driverHandler', err, { phone, state })
+    await wa.sendText(phone, 'Произошла ошибка.').catch(() => {})
   }
-};
+}
 
-const handleAsClient = async (phone, msg, session) => {
-  const { text, type, buttonId } = msg;
-  const ctx = session?.ctx || {};
-  const lo = (text||'').toLowerCase().trim();
-  if (type === 'button') {
-    if (buttonId === 'confirm_order') { if (!ctx.destination) return; await orderEngine.create(phone, ctx.destination, { price: ctx.price, tariff: ctx.tariff_id ? { id: ctx.tariff_id } : null }); return; }
-    if (buttonId === 'cancel_new')    { await q.clearSession(phone); await wa.sendText(phone, 'Отменено.'); return; }
-    if (buttonId === 'order_as_client') { await q.setSession(phone, 'driver_as_client', {}); await wa.sendText(phone, 'Куда нужно ехать?'); return; }
-    if (buttonId === 'cancel_order')  { const order = await q.getActiveOrderByClient(phone); if (order) await orderEngine.cancel(order.id, 'Отменён'); else { await q.clearSession(phone); await wa.sendText(phone, 'Нет заказа.'); } return; }
-    return;
-  }
-  if (!text || text.length < 2) return;
-  if (match(lo, KW.ONLINE)) {
-    await q.clearSession(phone);
-    const r = await driverMgr.goOnline(phone);
-    if (r.error === 'no_balance') { await wa.sendText(phone, 'Баланс = 0.'); return; }
-    const pos = await q.getDriverQueuePosition(phone);
-    const cnt = (await q.getOnlineDriversQueue()).length;
-    await wa.sendButtons(phone, 'Вы на линии! ' + pos + '-й из ' + cnt + '.', [{ id:'go_offline', text:'Уйти с линии' }]);
-    return;
-  }
-  if (ctx.confirming) {
-    if (['да','ок','ok','yes','поехали','иә'].includes(lo)) { await orderEngine.create(phone, ctx.destination, { price: ctx.price, tariff: ctx.tariff_id ? { id: ctx.tariff_id } : null }); return; }
-    if (['нет','отмена','cancel','жоқ'].includes(lo))       { await q.clearSession(phone); await wa.sendText(phone, 'Отменено.'); return; }
-  }
-  const active = await q.getActiveOrderByClient(phone);
-  if (active) { await wa.sendText(phone, 'У вас уже есть активный заказ!'); return; }
-  const pi = await tariff.getPrice(text);
-  const nightNote = pi.isNight ? ' (ночной тариф)' : '';
-  await wa.sendButtons(phone, 'Ваш заказ:\n\nКуда: ' + text + '\nЦена: ' + pi.price + ' тг' + nightNote + '\n\nПодтвердить?', [{ id:'confirm_order', text:'Да, поехали!' }, { id:'cancel_new', text:'Отмена' }]);
-  await q.setSession(phone, 'driver_as_client', { confirming: true, destination: text, price: pi.price, tariff_id: pi.tariff?.id || null });
-};
-
-const handleButton = async (phone, buttonId) => {
-  if (buttonId === 'order_as_client') { await q.setSession(phone, 'driver_as_client', {}); await wa.sendText(phone, 'Куда нужно ехать?'); return; }
-  if (buttonId === 'go_online')  { await q.clearSession(phone); const r = await driverMgr.goOnline(phone); if (r.error === 'no_balance') { await wa.sendText(phone, 'Баланс = 0.'); return; } const pos = await q.getDriverQueuePosition(phone); const cnt = (await q.getOnlineDriversQueue()).length; await wa.sendButtons(phone, 'На линии! ' + pos + '-й из ' + cnt, [{ id:'go_offline', text:'Уйти с линии' }]); return; }
-  if (buttonId === 'go_offline') { await driverMgr.goOffline(phone); await wa.sendButtons(phone, 'Ушли с линии.', [{ id:'go_online', text:'Выйти на линию' }, { id:'order_as_client', text:'Заказать такси' }]); return; }
-  if (buttonId.startsWith('accept_')) { const r = await orderEngine.accept(parseInt(buttonId.replace('accept_', '')), phone); if (r?.error === 'already_taken') await wa.sendText(phone, 'Уже принят другим.'); else if (r?.error) await wa.sendText(phone, 'Заказ недоступен.'); return; }
-  if (buttonId.startsWith('skip_'))    { await q.moveDriverToEndOfQueue(phone); await wa.sendText(phone, 'Пропущено.'); return; }
-  if (buttonId.startsWith('arrived_')) { await orderEngine.arrived(parseInt(buttonId.replace('arrived_', '')), phone); return; }
-  if (buttonId.startsWith('false_'))   { await orderEngine.falseCall(parseInt(buttonId.replace('false_', '')), phone); return; }
-  if (buttonId.startsWith('cancel_driver_')) {
-    await q.setSession(phone, 'cancel_reason', {});
-    await wa.sendButtons(phone, '🚫 *Отмена заказа*\n\nУкажите причину:', [
-      { id:'driver_cancel_client', text:'👤 Клиент не вышел' },
-      { id:'driver_cancel_road',   text:'🛣 Не могу доехать' },
-      { id:'driver_cancel_other',  text:'❓ Другое' },
-    ]);
-    return;
-  }
-  if (buttonId.startsWith('driver_cancel_')) {
-    const reasons = { client:'Клиент не вышел', road:'Водитель не может доехать', other:'Водитель отменил' };
-    const key = buttonId.replace('driver_cancel_', '');
-    const order = await q.getActiveOrderByDriver(phone);
-    if (order) await orderEngine.cancel(order.id, reasons[key] || 'Водитель отменил');
-    else { await q.clearSession(phone); await wa.sendText(phone, '❌ Нет активного заказа.'); }
-    return;
-  }
-  if (buttonId.startsWith('done_'))    { await orderEngine.complete(parseInt(buttonId.replace('done_', '')), phone); return; }
-  if (buttonId.startsWith('chat_'))    { await q.setSession(phone, 'driver_chat', { order_id: parseInt(buttonId.replace('chat_', '')) }); await wa.sendText(phone, 'Чат с клиентом. Выход: стоп'); return; }
-  if (buttonId === 'edit_name')  { await q.setSession(phone, 'edit_name', {}); await wa.sendText(phone, 'Введите новое ФИО:'); return; }
-  if (buttonId === 'edit_car')   { await q.setSession(phone, 'edit_car', {}); await wa.sendText(phone, 'Введите марку и номер:'); return; }
-  if (buttonId === 'edit_photo') { await q.setSession(phone, 'edit_photo', {}); await wa.sendText(phone, 'Отправьте фото:'); return; }
-};
-
-const handleEdit = async (phone, msg, state) => {
-  const { text, type, mediaUrl } = msg;
-  if (state === 'edit_name')  { if (!text || text.length < 2) { await wa.sendText(phone, 'Введите ФИО:'); return; } await q.updateDriver(phone, { full_name: text.trim().slice(0, 100) }); await q.clearSession(phone); await wa.sendText(phone, 'Имя обновлено: ' + text.trim()); return; }
-  if (state === 'edit_car')   { const parts = (text||'').split(',').map(s => s.trim()); if (parts.length < 2 || !parts[0] || !parts[1]) { await wa.sendText(phone, 'Формат: Марка, Номер'); return; } await q.updateDriver(phone, { car_make: parts[0].slice(0, 50), car_plate: parts[1].toUpperCase().slice(0, 20) }); await q.clearSession(phone); await wa.sendText(phone, 'Авто обновлено!'); return; }
-  if (state === 'edit_photo') { if (type !== 'image' || !mediaUrl) { await wa.sendText(phone, 'Отправьте фото:'); return; } await q.updateDriver(phone, { car_photo_url: mediaUrl }); await q.clearSession(phone); await wa.sendText(phone, 'Фото обновлено!'); return; }
-  if (state === 'edit_color') { if (!text || text.length < 2) { await wa.sendText(phone, 'Введите цвет:'); return; } await q.updateDriver(phone, { car_color: text.trim().slice(0, 50) }); await q.clearSession(phone); await wa.sendText(phone, 'Цвет обновлён: ' + text.trim()); return; }
-};
-
-const handleCancelReason = async (phone, text, ctx) => {
-  const order = await q.getActiveOrderByDriver(phone);
-  if (!order) { await q.clearSession(phone); return; }
-  await orderEngine.cancel(order.id, text?.slice(0, 200) || 'Водитель отменил');
-};
-
-const handleRegistration = async (phone, msg, state) => {
-  const { text, type, mediaUrl } = msg;
-  switch (state) {
-    case 'reg_name':  if (!text || text.length < 2) { await wa.sendText(phone, 'Введите ФИО:'); return; } await q.updateDriver(phone, { full_name: text.trim().slice(0, 100) }); await q.setSession(phone, 'reg_photo', {}); await wa.sendText(phone, 'Имя: ' + text.trim() + '\n\nШаг 2/5: Отправьте фото автомобиля:'); break;
-    case 'reg_photo': if (type !== 'image' || !mediaUrl) { await wa.sendText(phone, 'Отправьте фото:'); return; } await q.updateDriver(phone, { car_photo_url: mediaUrl }); await q.setSession(phone, 'reg_make', {}); await wa.sendText(phone, 'Фото сохранено!\n\nШаг 3/5: Марка и модель авто:'); break;
-    case 'reg_make':  if (!text || text.length < 2) { await wa.sendText(phone, 'Введите марку:'); return; } await q.updateDriver(phone, { car_make: text.trim().slice(0, 50) }); await q.setSession(phone, 'reg_plate', {}); await wa.sendText(phone, 'Марка: ' + text.trim() + '\n\nШаг 4/5: Гос. номер:'); break;
-    case 'reg_plate': if (!text || text.length < 2) { await wa.sendText(phone, 'Введите номер:'); return; } await q.updateDriver(phone, { car_plate: text.trim().toUpperCase().slice(0, 20) }); await q.setSession(phone, 'reg_color', {}); await wa.sendText(phone, 'Номер: ' + text.trim().toUpperCase() + '\n\nШаг 5/5: Цвет авто:'); break;
-    case 'reg_color': if (!text || text.length < 2) { await wa.sendText(phone, 'Введите цвет:'); return; }
-      await q.updateDriver(phone, { car_color: text.trim().slice(0, 50) });
-      await q.setSession(phone, 'reg_referral', {});
-      await wa.sendText(phone,
-        'Цвет: *' + text.trim() + '*\n\n' +
-        '🎁 *Бонусный шаг!*\n\n' +
-        'Вас кто-то пригласил в нашу команду?\n' +
-        'Введите *реферальный код* пригласившего водителя — он получит *+20 заказов* как бонус!\n\n' +
-        '📌 Или напишите *"пропустить"* если кода нет.'
-      );
-      break;
-    case 'reg_referral': {
-      const lo = (text||'').toLowerCase().trim();
-      if (!['пропустить','пропуск','skip','нет'].includes(lo) && text && text.length >= 3) {
-        // Ищем водителя по реферальному коду
-        const referrerUser = await q.getUserByReferralCode(text.trim().toUpperCase()).catch(() => null);
-        if (referrerUser && referrerUser.role === 'driver') {
-          const result = await q.addDriverBalance(referrerUser.phone, 20).catch(() => null);
-          if (result) {
-            await q.addBillingRecord(result.id, 20, result.order_balance, 'Реферальный бонус: новый водитель', null).catch(() => {});
-            await wa.sendText(referrerUser.phone,
-              '🎉 *По вашему коду зарегистрировался новый водитель!*\n\n' +
-              '🎁 Вам начислено *+20 заказов* к балансу!\n' +
-              '📦 Текущий баланс: *' + (result.order_balance >= 999999 ? '∞' : result.order_balance) + '*\n\n' +
-              'Приглашайте больше — зарабатывайте больше! 💪'
-            ).catch(() => {});
-            await wa.sendText(phone, '🎁 *Реферальный бонус применён!*\nВаш пригласитель получил +20 заказов. Спасибо!');
-          }
-        } else {
-          await wa.sendText(phone, '❌ Код не найден. Продолжаем без реферала.');
-        }
-      }
-      // Завершаем регистрацию
-      await q.clearSession(phone);
-      const d = await q.getDriver(phone);
-      if (!d) { await wa.sendText(phone, '✅ Регистрация завершена! Напишите *"на линию"* чтобы начать.'); break; }
-      await wa.sendText(phone,
-        '🎉 *Добро пожаловать в еОсакаровка Сервис!*\n\n' +
-        '👤 Водитель: *' + (d.full_name||'—') + '*\n' +
-        '🚗 Авто: *' + (d.car_make||'—') + '*, ' + (d.car_color||'—') + '\n' +
-        '🔢 Номер: *' + (d.car_plate||'—') + '*\n\n' +
-        '📋 *Основные команды:*\n' +
-        '🟢 *на линию* — начать работу\n' +
-        '⚫ *с линии* — закончить работу\n' +
-        '✅ *принял* — принять заказ\n' +
-        '📍 *прибыл* — приехали к клиенту\n' +
-        '🏁 *свободен* — поездка завершена\n' +
-        '🚫 *ложный* — клиента нет на месте\n' +
-        '📊 *статистика* — ваш заработок\n' +
-        '🔢 *очередь* — ваша позиция\n' +
-        '❓ *faq* — полная инструкция\n\n' +
-        '🎙 *Все команды работают голосом!*\n\n' +
-        '🤝 *Пригласи друга-водителя — получи +20 заказов!*\n' +
-        'Твой реферальный код: узнай командой *"мой код"*\n\n' +
-        'Напишите *"на линию"* чтобы начать! 🚖'
-      );
-      break;
-    }
-  }
-};
-
-module.exports = { handle };
+module.exports = { handle }

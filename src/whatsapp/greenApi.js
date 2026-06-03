@@ -8,26 +8,42 @@ const fmt = (phone) => {
   return clean.endsWith('@c.us') ? clean : `${clean}@c.us`;
 };
 
-const post = async (method, data) => {
-  try {
-    const res = await axios.post(`${BASE}/${method}/${config.API_TOKEN}`, data, {
-      timeout: 10_000,
-    });
-    return res.data;
-  } catch (err) {
-    console.error(`[GreenAPI] ${method} error:`, err.response?.data || err.message);
-    return null;
+const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+
+const RETRY_DELAYS = [1000, 2000]; // задержка после 1-й и 2-й неудачи
+
+const postWithRetry = async (method, data) => {
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    try {
+      const res = await axios.post(`${BASE}/${method}/${config.API_TOKEN}`, data, {
+        timeout: 10_000,
+      });
+      return res.data;
+    } catch (err) {
+      const status = err.response?.status;
+      const isRetryable = status === 429 || status >= 500 ||
+        err.code === 'ECONNABORTED' || err.code === 'ETIMEDOUT';
+
+      if (attempt < 3 && isRetryable) {
+        await sleep(RETRY_DELAYS[attempt - 1]);
+        continue;
+      }
+      // После всех попыток или при не-ретраябельной ошибке — логируем и возвращаем null
+      console.error(`[GreenAPI] ${method} failed (attempt ${attempt}):`, err.response?.data || err.message);
+      return null;
+    }
   }
+  return null;
 };
 
 // Отправить текст
 const sendText = async (phone, message) => {
-  return post('sendMessage', { chatId: fmt(phone), message });
+  return postWithRetry('sendMessage', { chatId: fmt(phone), message });
 };
 
 // Отправить сообщение с кнопками (до 3 кнопок)
 const sendButtons = async (phone, message, buttons, footer = '') => {
-  const result = await post('sendButtons', {
+  const result = await postWithRetry('sendButtons', {
     chatId: fmt(phone),
     message,
     footer,
@@ -47,7 +63,7 @@ const sendButtons = async (phone, message, buttons, footer = '') => {
 
 // Отправить картинку по URL с подписью
 const sendImage = async (phone, urlFile, caption = '') => {
-  return post('sendFileByUrl', {
+  return postWithRetry('sendFileByUrl', {
     chatId: fmt(phone),
     urlFile,
     fileName: 'photo.jpg',
@@ -67,7 +83,7 @@ const getState = async () => {
 
 // Установить URL вебхука
 const setWebhook = async (webhookUrl) => {
-  return post('setSettings', {
+  return postWithRetry('setSettings', {
     webhookUrl,
     incomingWebhook:         'yes',
     outgoingMessageWebhook:  'no',

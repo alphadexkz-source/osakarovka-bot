@@ -1,0 +1,100 @@
+const wa = require('../whatsapp/greenApi')
+const q = require('../db/queries')
+
+const handleRegistration = async (phone, msg, state) => {
+  const { text, type, mediaUrl } = msg
+  switch (state) {
+    case 'reg_name':
+      if (!text || text.length < 2) { await wa.sendText(phone, 'Введите ФИО:'); return }
+      await q.updateDriver(phone, { full_name: text.trim().slice(0, 100) })
+      await q.setSession(phone, 'reg_photo', {})
+      await wa.sendText(phone, 'Имя: ' + text.trim() + '\n\nШаг 2/5: Отправьте фото автомобиля:')
+      break
+    case 'reg_photo':
+      if (type !== 'image' || !mediaUrl) { await wa.sendText(phone, 'Отправьте фото:'); return }
+      await q.updateDriver(phone, { car_photo_url: mediaUrl })
+      await q.setSession(phone, 'reg_make', {})
+      await wa.sendText(phone, 'Фото сохранено!\n\nШаг 3/5: Марка и модель авто:')
+      break
+    case 'reg_make':
+      if (!text || text.length < 2) { await wa.sendText(phone, 'Введите марку:'); return }
+      await q.updateDriver(phone, { car_make: text.trim().slice(0, 50) })
+      await q.setSession(phone, 'reg_plate', {})
+      await wa.sendText(phone, 'Марка: ' + text.trim() + '\n\nШаг 4/5: Гос. номер:')
+      break
+    case 'reg_plate':
+      if (!text || text.length < 2) { await wa.sendText(phone, 'Введите номер:'); return }
+      await q.updateDriver(phone, { car_plate: text.trim().toUpperCase().slice(0, 20) })
+      await q.setSession(phone, 'reg_color', {})
+      await wa.sendText(phone, 'Номер: ' + text.trim().toUpperCase() + '\n\nШаг 5/5: Цвет авто:')
+      break
+    case 'reg_color':
+      if (!text || text.length < 2) { await wa.sendText(phone, 'Введите цвет:'); return }
+      await q.updateDriver(phone, { car_color: text.trim().slice(0, 50) })
+      await q.setSession(phone, 'reg_referral', {})
+      await wa.sendText(phone,
+        'Цвет: *' + text.trim() + '*\n\n' +
+        '🎁 *Бонусный шаг!*\n\n' +
+        'Вас кто-то пригласил в нашу команду?\n' +
+        'Введите *реферальный код* пригласившего водителя — он получит *+20 заказов* как бонус!\n\n' +
+        '📌 Или напишите *"пропустить"* если кода нет.'
+      )
+      break
+    case 'reg_referral': {
+      const lo = (text||'').toLowerCase().trim()
+      if (!['пропустить','пропуск','skip','нет'].includes(lo) && text && text.length >= 3) {
+        const referrerUser = await q.getUserByReferralCode(text.trim().toUpperCase()).catch(() => null)
+        if (referrerUser && referrerUser.role === 'driver') {
+          const result = await q.addDriverBalance(referrerUser.phone, 20).catch(() => null)
+          if (result) {
+            await q.addBillingRecord(result.id, 20, result.order_balance, 'Реферальный бонус: новый водитель', null).catch(() => {})
+            await wa.sendText(referrerUser.phone,
+              '🎉 *По вашему коду зарегистрировался новый водитель!*\n\n' +
+              '🎁 Вам начислено *+20 заказов* к балансу!\n' +
+              '📦 Текущий баланс: *' + (result.order_balance >= 999999 ? '∞' : result.order_balance) + '*\n\n' +
+              'Приглашайте больше — зарабатывайте больше! 💪'
+            ).catch(() => {})
+            await wa.sendText(phone, '🎁 *Реферальный бонус применён!*\nВаш пригласитель получил +20 заказов. Спасибо!')
+          }
+        } else {
+          await wa.sendText(phone, '❌ Код не найден. Продолжаем без реферала.')
+        }
+      }
+      // Завершаем регистрацию
+      await q.clearSession(phone)
+      const d = await q.getDriver(phone)
+      if (!d) { await wa.sendText(phone, '✅ Регистрация завершена! Напишите *"на линию"* чтобы начать.'); break }
+      await wa.sendText(phone,
+        '🎉 *Добро пожаловать в еОсакаровка Сервис!*\n\n' +
+        '👤 Водитель: *' + (d.full_name||'—') + '*\n' +
+        '🚗 Авто: *' + (d.car_make||'—') + '*, ' + (d.car_color||'—') + '\n' +
+        '🔢 Номер: *' + (d.car_plate||'—') + '*\n\n' +
+        '📋 *Основные команды:*\n' +
+        '🟢 *на линию* — начать работу\n' +
+        '⚫ *с линии* — закончить работу\n' +
+        '✅ *принял* — принять заказ\n' +
+        '📍 *прибыл* — приехали к клиенту\n' +
+        '🏁 *свободен* — поездка завершена\n' +
+        '🚫 *ложный* — клиента нет на месте\n' +
+        '📊 *статистика* — ваш заработок\n' +
+        '🔢 *очередь* — ваша позиция\n' +
+        '❓ *faq* — полная инструкция\n\n' +
+        '🎙 *Все команды работают голосом!*\n\n' +
+        '🤝 *Пригласи друга-водителя — получи +20 заказов!*\n' +
+        'Твой реферальный код: узнай командой *"мой код"*\n\n' +
+        'Напишите *"на линию"* чтобы начать! 🚖'
+      )
+      break
+    }
+  }
+}
+
+const handleEdit = async (phone, msg, state) => {
+  const { text, type, mediaUrl } = msg
+  if (state === 'edit_name')  { if (!text || text.length < 2) { await wa.sendText(phone, 'Введите ФИО:'); return } await q.updateDriver(phone, { full_name: text.trim().slice(0, 100) }); await q.clearSession(phone); await wa.sendText(phone, 'Имя обновлено: ' + text.trim()); return }
+  if (state === 'edit_car')   { const parts = (text||'').split(',').map(s => s.trim()); if (parts.length < 2 || !parts[0] || !parts[1]) { await wa.sendText(phone, 'Формат: Марка, Номер'); return } await q.updateDriver(phone, { car_make: parts[0].slice(0, 50), car_plate: parts[1].toUpperCase().slice(0, 20) }); await q.clearSession(phone); await wa.sendText(phone, 'Авто обновлено!'); return }
+  if (state === 'edit_photo') { if (type !== 'image' || !mediaUrl) { await wa.sendText(phone, 'Отправьте фото:'); return } await q.updateDriver(phone, { car_photo_url: mediaUrl }); await q.clearSession(phone); await wa.sendText(phone, 'Фото обновлено!'); return }
+  if (state === 'edit_color') { if (!text || text.length < 2) { await wa.sendText(phone, 'Введите цвет:'); return } await q.updateDriver(phone, { car_color: text.trim().slice(0, 50) }); await q.clearSession(phone); await wa.sendText(phone, 'Цвет обновлён: ' + text.trim()); return }
+}
+
+module.exports = { handleRegistration, handleEdit }
