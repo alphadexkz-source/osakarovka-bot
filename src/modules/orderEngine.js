@@ -82,8 +82,11 @@ const dispatch_queue = async (orderId, tried, circles) => {
   if (!driver) {
     const allOnline = await q.getOnlineDriversQueue();
     if (!allOnline.length || circles >= config.MAX_CIRCLES) {
-      // Перед отменой — уведомляем офлайн-водителей что есть заказ
-      if (!allOnline.length && circles === 0) {
+      // Уведомляем офлайн-водителей только один раз (circles === 0 и ещё не уведомляли)
+      const orderSession = await q.getSession('order_' + orderId).catch(() => null);
+      const alreadyNotified = orderSession?.ctx?.offline_notified;
+      if (!allOnline.length && circles === 0 && !alreadyNotified) {
+        await q.setSession('order_' + orderId, 'searching', { offline_notified: true }).catch(() => {});
         const allDrivers = await q.getAllDrivers().catch(() => []);
         const offlineWithBalance = allDrivers.filter(d => d.status === 'offline' && d.order_balance > 0);
         for (const d of offlineWithBalance) {
@@ -292,6 +295,13 @@ const falseCall = async (orderId, driverPhone) => {
   if (!order) return { error: 'not_found' };
   const driver = await q.getDriver(driverPhone);
   const client = await q.getUser(order.client_phone);
+  if (!client) {
+    console.error('[falseCall] client not found:', order.client_phone);
+    await q.setDriverStatus(driverPhone, 'online');
+    await q.moveDriverToEndOfQueue(driverPhone);
+    await q.clearSession(driverPhone);
+    return { error: 'client_not_found' };
+  }
   await q.saveFalseCall(orderId, client.id, driver?.id, config.FALSE_CALL_PRICE);
   await q.updateOrder(orderId, { status:'cancelled', cancel_reason:'false_call', cancelled_at: new Date() });
   await q.setDriverStatus(driverPhone, 'online');

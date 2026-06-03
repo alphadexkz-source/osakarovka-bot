@@ -10,6 +10,8 @@ const { recognizeVoice } = require('../modules/voiceRecognizer');
 const { getGroqDriverReply } = require('../modules/smartReply');
 const { getWeather, formatWeatherBrief } = require('../modules/weatherService');
 
+const breakTimers = new Map(); // phone → timer ID для отмены при ручном выходе на линию
+
 const KW = {
   ONLINE:  ['на линию','линию','выхожу','начинаю','работаю','онлайн','старт','начать','работать',
              'жұмыс','жұмысқа','линияға шығам','шығамын','приступаю','начинать'],
@@ -67,6 +69,7 @@ const handle = async (phone, msg, session) => {
         .trim();
 
       const driver2 = await q.getDriver(phone);
+      if (!driver2) { await wa.sendText(phone, '⚠️ Водитель не найден.'); return; }
       if (driver2?.status === 'busy') {
         const order2 = await q.getActiveOrderByDriver(phone);
         if (order2) {
@@ -136,6 +139,7 @@ const handle = async (phone, msg, session) => {
     if (match(lo, KW.SKIP))   { await q.moveDriverToEndOfQueue(phone); await wa.sendText(phone, 'Пропущено.'); return; }
 
     if (match(lo, KW.ONLINE)) {
+      if (breakTimers.has(phone)) { clearTimeout(breakTimers.get(phone)); breakTimers.delete(phone); }
       await q.clearSession(phone);
       const r = await driverMgr.goOnline(phone);
       if (r.error === 'no_balance') { await wa.sendText(phone, '🔴 Баланс = 0.\nОбратитесь к администратору для пополнения.'); return; }
@@ -184,8 +188,10 @@ const handle = async (phone, msg, session) => {
       const mins = Math.min(parseInt(breakMatch[1]), 180);
       await driverMgr.goOffline(phone);
       await wa.sendText(phone, '⏸ *Перерыв ' + mins + ' мин.*\n\nОтдыхайте! ☕ Автоматически верну вас на линию через *' + mins + ' мин.*');
-      setTimeout(async () => {
+      // Сохраняем timer ID в сессии чтобы отменить при ручном выходе на линию
+      const breakTimer = setTimeout(async () => {
         try {
+          breakTimers.delete(phone);
           const d = await q.getDriver(phone);
           if (d?.status === 'offline') {
             const r = await driverMgr.goOnline(phone);
@@ -197,6 +203,7 @@ const handle = async (phone, msg, session) => {
           }
         } catch(e) { console.error('[break timer]', e.message); }
       }, mins * 60 * 1000);
+      breakTimers.set(phone, breakTimer);
       return;
     }
 

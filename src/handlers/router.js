@@ -88,8 +88,8 @@ const route = async (body) => {
         '📍 Просто напишите *куда нужно ехать* — найдём водителя!\n\n' +
         '🎁 Каждая *10-я поездка* — бесплатно!'
       );
-      const freshSession = await q.getSession(phone);
-      return clientHandler.handle(phone, name, msg, freshSession || { state: 'idle', ctx: {} });
+      // Не передаём первое сообщение в clientHandler — пользователь ещё не видел приветствие
+      return;
     }
 
     // ВОДИТЕЛЬ

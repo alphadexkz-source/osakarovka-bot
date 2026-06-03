@@ -106,22 +106,26 @@ bot.on('message:text', async ctx => {
     // Удаляем «Думаю…»
     await ctx.api.deleteMessage(ctx.chat.id, statusMsgId).catch(() => {});
 
-    // Отправляем ответ
-    await ctx.reply(result.reply || '👍', { parse_mode: 'Markdown' }).catch(() =>
-      ctx.reply(result.reply || '👍')
-    );
+    // Отправляем ответ — если Markdown сломан, шлём plain text
+    const sendSafe = async (txt) => {
+      try {
+        await ctx.reply(txt, { parse_mode: 'Markdown' });
+      } catch {
+        await ctx.reply(txt.replace(/[*_`\[\]]/g, ''));
+      }
+    };
+
+    await sendSafe(result.reply || '👍');
 
     // Если есть задача для Claude — отправляем отдельным сообщением
     if (result.claudeTask) {
       await mem.saveTask(text, result.claudeTask);
       const taskMsg =
         '━━━━━━━━━━━━━━━━━━━━━\n' +
-        '📋 *ЗАДАЧА ДЛЯ CLAUDE CODE:*\n\n' +
+        '📋 ЗАДАЧА ДЛЯ CLAUDE CODE:\n\n' +
         result.claudeTask +
         '\n━━━━━━━━━━━━━━━━━━━━━';
-      await ctx.reply(taskMsg, { parse_mode: 'Markdown' }).catch(() =>
-        ctx.reply(taskMsg)
-      );
+      await sendSafe(taskMsg);
     }
 
   } catch (err) {

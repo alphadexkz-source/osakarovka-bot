@@ -27,23 +27,34 @@ const start = () => {
     } catch(e) { console.error('[Timer/stuck_orders]', e.message); }
   });
 
+  // Каждые 5 мин — авто-офлайн водителей при 30 мин бездействия (БАГ #13 fix)
+  cron.schedule('*/5 * * * *', async () => {
+    try {
+      const inactive = await q.getInactiveDrivers(30).catch(() => []);
+      for (const d of inactive) {
+        await q.setDriverStatus(d.phone, 'offline');
+        await notify.driverInactiveOffline(d.phone).catch(() => {});
+      }
+    } catch(e) { console.error('[Timer/auto_offline]', e.message); }
+  });
+
   // Каждые 5 мин — предупреждение водителям перед авто-офлайн (за 5 мин до 30 мин бездействия)
   cron.schedule('*/5 * * * *', async () => {
     try {
       const db = require('../db/index');
-      const warnThreshold = 25; // предупреждаем при 25 мин бездействия
-      const r = await db.query(`
-        SELECT u.phone, d.full_name FROM drivers d
-        JOIN users u ON d.user_id = u.id
-        WHERE d.status = 'online'
-          AND d.last_activity < NOW() - make_interval(mins => ${warnThreshold})
-          AND d.last_activity > NOW() - make_interval(mins => 28)
-      `);
+      const r = await db.query(
+        `SELECT u.phone, d.full_name FROM drivers d
+         JOIN users u ON d.user_id = u.id
+         WHERE d.status = 'online'
+           AND d.last_activity < NOW() - make_interval(mins => $1)
+           AND d.last_activity > NOW() - make_interval(mins => $2)`,
+        [25, 28]
+      );
       for (const d of r.rows) {
         await wa.sendText(d.phone,
           '⚠️ *' + d.full_name + '*, вы неактивны 25 минут.\n\n' +
           'Через *5 минут* автоматически уйдёте офлайн.\n\n' +
-          'Напишите что-нибудь или нажмите кнопку чтобы остаться на линии.'
+          'Напишите что-нибудь чтобы остаться на линии.'
         ).catch(() => {});
         await new Promise(r => setTimeout(r, 300));
       }
