@@ -6,7 +6,7 @@ const orderEngine = require('../modules/orderEngine');
 const chatRelay = require('../modules/chatRelay');
 const config = require('../config');
 const { isAddress, resolveAddress, findInAddresses } = require('../modules/addressDetector');
-const { recognizeVoice } = require('../modules/voiceRecognizer');
+const { transcribe: transcribeVoice } = require('../modules/voiceCommandHandler');
 const { getGroqReply, parseScheduleTime } = require('../modules/smartReply');
 const { dailyGreeting } = require('../modules/greetingService');
 const favAddr = require('../modules/favoriteAddresses');
@@ -116,8 +116,8 @@ const handle = async (phone, name, msg, session) => {
         return;
       }
       await wa.sendText(phone, '🎤 Распознаю голосовое сообщение...');
-      const recognized = await recognizeVoice(mediaUrl, phone);
-      if (recognized && recognized.length >= 2) {
+      const recognized = await transcribeVoice(mediaUrl, phone);
+      if (recognized) {
         // Если ждём оценку — конвертируем числа словами в цифры
         let voiceText = recognized;
         if (state === 'waiting_rating') {

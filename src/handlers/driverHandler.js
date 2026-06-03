@@ -6,7 +6,7 @@ const chatRelay = require('../modules/chatRelay');
 const notify = require('../modules/notificationService');
 const tariff = require('../modules/tariffEngine');
 const config = require('../config');
-const { recognizeVoice } = require('../modules/voiceRecognizer');
+const { transcribe: transcribeVoice } = require('../modules/voiceCommandHandler');
 const { getGroqDriverReply } = require('../modules/smartReply');
 const { getWeather, formatWeatherBrief } = require('../modules/weatherService');
 
@@ -39,8 +39,8 @@ const handle = async (phone, msg, session) => {
     // ГОЛОСОВОЕ
     if (type === 'voice') {
       if (!mediaUrl) { await wa.sendText(phone, '🎙 Голосовое не получено. Напишите команду.'); return; }
-      const voiceText = await recognizeVoice(mediaUrl, phone).catch(() => null);
-      if (!voiceText || voiceText.length < 2) { await wa.sendText(phone, '🎤 Не удалось распознать. Напишите команду.'); return; }
+      const voiceText = await transcribeVoice(mediaUrl, phone);
+      if (!voiceText) { await wa.sendText(phone, '🎤 Не удалось распознать. Напишите команду.'); return; }
 
       // Голос в режиме «водитель как клиент» → обработка как адрес/текст клиента
       if (state === 'driver_as_client') {

@@ -5,6 +5,9 @@ const db = require('../db/index');
 const q = require('../db/queries');
 const notify = require('./notificationService');
 const wa = require('../whatsapp/greenApi');
+const config = require('../config');
+// orderEngine импортируется здесь безопасно: timerService → orderEngine → нет timerService
+const orderEngine = require('./orderEngine');
 
 // ─── Вспомогательные функции каждые 5 мин ────────────────────
 
@@ -55,9 +58,56 @@ const warnInactiveDrivers = async () => {
   }
 };
 
+// ─── Восстановление зависших диспетчеризаций после рестарта ──────────────────
+
+// Заказы с dispatched_at < NOW() - ACCEPT_TIMEOUT_MS могли потерять таймер при рестарте.
+// При рестарте timerService вызывает эту функцию один раз — разбирает зависшие.
+const checkDispatchTimeouts = async () => {
+  const timeoutMs = (config.ACCEPT_TIMEOUT_MS || 60000) + 10000 // +10s буфер
+  const expired = await q.getExpiredDispatches(timeoutMs).catch(() => [])
+  for (const order of expired) {
+    try {
+      const driverPhone = order.dispatched_to
+      await q.clearDispatchState(order.id)
+      if (driverPhone) {
+        await orderEngine.cancel(order.id, 'no_response').catch(() => {})
+      }
+    } catch (e) { console.error('[Timer/dispatch_timeout]', e.message) }
+  }
+}
+
+// ─── Предупреждение водителя и клиента при долгом движении к клиенту ─────────
+
+const checkArriveWarnings = async () => {
+  const warningMs = config.ARRIVE_TIMEOUT_MS || 12 * 60 * 1000
+  const orders = await q.getUnwarnedArrivals(warningMs).catch(() => [])
+  for (const order of orders) {
+    try {
+      await wa.sendText(order.driver_phone, '⏰ Прошло 12 минут — клиент всё ещё ждёт. Вы уже едете?')
+        .catch(() => {})
+      await wa.sendText(order.client_phone, '⏳ *Водитель немного задерживается*, но уже едет к вам.\nЕсли нужно — напишите водителю.')
+        .catch(() => {})
+      await q.setArriveWarned(order.id)
+    } catch (e) { console.error('[Timer/arrive_warning]', e.message) }
+  }
+}
+
 // ─── Запуск всех крон-задач ───────────────────────────────────
 
 const start = () => {
+
+  // При старте — разобрать зависшие диспетчеризации от предыдущего запуска
+  checkDispatchTimeouts().catch(e => console.error('[Timer/dispatch_timeout_startup]', e.message))
+
+  // Каждые 30 секунд — проверка зависших диспетчеризаций
+  cron.schedule('*/1 * * * *', async () => {
+    try { await checkDispatchTimeouts(); } catch (e) { console.error('[Timer/dispatch_timeout]', e.message); }
+  })
+
+  // Каждые 2 минуты — предупреждения о долгом ожидании прибытия
+  cron.schedule('*/2 * * * *', async () => {
+    try { await checkArriveWarnings(); } catch (e) { console.error('[Timer/arrive_warnings]', e.message); }
+  })
 
   // Каждые 5 мин — три задачи в одном расписании
   cron.schedule('*/5 * * * *', async () => {

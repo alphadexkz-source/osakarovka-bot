@@ -10,7 +10,7 @@ const config    = require('../config');
 const login = async (phone, text) => {
   try {
     // Проверить блокировку
-    const attempt = q.checkAdminAttempt(phone);
+    const attempt = await q.checkAdminAttempt(phone);
     if (attempt.locked) {
       await wa.sendText(phone, `🔒 Слишком много попыток. Попробуйте через *${attempt.mins} мин*.`);
       return;
@@ -18,14 +18,14 @@ const login = async (phone, text) => {
 
     const pin = text.replace('/admin', '').trim();
     if (pin !== config.ADMIN_PIN) {
-      const count = q.recordFailedAdmin(phone);
+      const count = await q.recordFailedAdmin(phone);
       const left  = Math.max(0, 5 - count);
       await wa.sendText(phone, `❌ Неверный PIN.${left > 0 ? ` Осталось попыток: ${left}` : ' Аккаунт заблокирован на 15 мин.'}`);
       return;
     }
 
     // Успешный вход — сбросить счётчик
-    q.resetAdminAttempts(phone);
+    await q.resetAdminAttempts(phone);
 
     const user = await q.getUser(phone);
     if (!user) await q.createUser(phone, 'Администратор', 'admin');
