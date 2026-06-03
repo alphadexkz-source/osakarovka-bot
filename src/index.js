@@ -131,4 +131,10 @@ app.listen(config.PORT, async () => {
   console.log(`🛡️  Rate limit: ${RATE_LIMIT} сообщений / 60 сек`);
   await recoverOnStartup();
   startTimers();
+  // Предупреждение если тарифов нет
+  db.query('SELECT COUNT(*) AS cnt FROM tariffs WHERE is_active=TRUE').then(r => {
+    const cnt = parseInt(r.rows[0]?.cnt || 0);
+    if (cnt === 0) console.warn('⚠️  ТАРИФЫ НЕ ДОБАВЛЕНЫ — все заказы будут по умолчанию ' + config.CITY_PRICE + ' тг!');
+    else console.log(`✅ Тарифов в базе: ${cnt}`);
+  }).catch(() => {});
 });
