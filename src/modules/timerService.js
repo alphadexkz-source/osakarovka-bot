@@ -243,15 +243,10 @@ const start = () => {
       for (const d of drivers) {
         const stats = await q.getDriverTodayStats(d.id).catch(() => null);
         if (stats && (stats.completed > 0 || stats.earned > 0)) {
-          const code = await q.getOrCreateReferralCode(d.phone).catch(() => null);
-          const referralLine = code
-            ? '\n\n🤝 *Пригласи друга-водителя — получи +20 заказов!*\nТвой код: *' + code + '*'
-            : '';
           await wa.sendText(d.phone,
             '🌙 *Итоги дня, ' + d.full_name + '!*\n\n' +
             '🚖 Поездок: *' + (stats.completed||0) + '*\n' +
-            '💰 Заработано: *' + Number(stats.earned||0).toLocaleString() + ' тг*' +
-            referralLine + '\n\n' +
+            '💰 Заработано: *' + Number(stats.earned||0).toLocaleString() + ' тг*\n\n' +
             '👏 Спасибо за работу! Отдыхайте. До завтра! 😴'
           );
           await new Promise(r => setTimeout(r, 500));

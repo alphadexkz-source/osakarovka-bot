@@ -3,41 +3,41 @@ const { getWeather, formatWeatherForGroq, formatWeatherBrief } = require('./weat
 const { SYSTEM_CONTEXT } = require('./prompts');
 
 let groq = null;
-const getGroq = () => { if (!groq) groq = new Groq({ apiKey: process.env.GROQ_API_KEY }); return groq; };
-const clientCache = new Map();
+const getGroq = () => {
+  if (!groq) groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
+  return groq;
+};
 
 const getGroqReply = async (text) => {
   const lo = (text||'').toLowerCase().trim();
   if (!lo || lo.length < 2) return null;
-  if (clientCache.has(lo)) return clientCache.get(lo);
+
   try {
     const weather = await getWeather().catch(() => null);
     const weatherStr = formatWeatherForGroq(weather);
     const h = new Date().getHours();
     const tod = h>=6&&h<12?'утро':h>=12&&h<17?'день':h>=17&&h<22?'вечер':'ночь';
+
     const r = await getGroq().chat.completions.create({
       messages: [{
         role: 'system',
-        content: SYSTEM_CONTEXT + '\n\n' +
-          'Сейчас: ' + tod + '.\n' +
-          (weatherStr ? '⚠️ ПОГОДА СЕЙЧАС: ' + weatherStr + '\n' : '') +
-          '\nПРАВИЛА ОТВЕТА:\n' +
-          '• Отвечай тепло, по-человечески, дружески\n' +
-          '• Максимум 2–3 предложения\n' +
-          '• Используй эмодзи уместно (1–2 штуки)\n' +
-          '• СТРОГО один язык: если клиент пишет на казахском — отвечай ТОЛЬКО на казахском, на русском — ТОЛЬКО на русском. Не смешивай!\n' +
-          '• Никогда не используй английский\n' +
-          '• В конце мягко предложи написать адрес назначения\n' +
-          (weatherStr ? '• Упомяни погоду если уместно для поездки\n' : '')
+        content: SYSTEM_CONTEXT + `
+
+Сейчас: ${tod} в Осакаровке.
+${weatherStr ? '⚠️ Погода: ' + weatherStr : ''}
+Отвечай тепло, коротко (максимум 2–3 предложения), по делу.
+Используй 1–2 эмодзи уместно.`
       }, { role: 'user', content: text }],
-      model: 'llama-3.3-70b-versatile', max_tokens: 200, temperature: 0.75,
+      model: 'llama-3.3-70b-versatile',
+      max_tokens: 220,
+      temperature: 0.75,
     });
-    const reply = r.choices[0]?.message?.content?.trim();
-    if (!reply) return null;
-    clientCache.set(lo, reply);
-    setTimeout(() => clientCache.delete(lo), 600000);
-    return reply;
-  } catch(e) { console.error('[smartReply:client]', e.message); return null; }
+
+    return r.choices[0]?.message?.content?.trim() || null;
+  } catch(e) {
+    console.error('[smartReply:client]', e.message);
+    return null;
+  }
 };
 
 const getGroqDriverReply = async (text, driverName, stats, extra) => {

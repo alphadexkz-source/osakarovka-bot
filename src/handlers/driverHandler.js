@@ -61,7 +61,7 @@ const handle = async (phone, msg, session) => {
     if (type === 'voice') {
       // Клиентские состояния — clientOrderHandler сам разберётся
       if (state === 'confirming' || state === 'driver_as_client') {
-        return clientOrderHandler.handle(phone, name, msg, session)
+        return clientOrderHandler.handle(phone, null, msg, session)
       }
       // Все остальные состояния и команды водителя
       return driverCommandHandler.handle(phone, msg, session)

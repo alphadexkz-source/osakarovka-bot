@@ -1,5 +1,4 @@
 const wa        = require('../whatsapp/greenApi');
-const db        = require('../db/index');
 const q         = require('../db/queries');
 const tariffEng = require('../modules/tariffEngine');
 const driverMgr = require('../modules/driverManager');
@@ -139,13 +138,6 @@ const handle = async (phone, msg, session) => {
       const s = await q.getTodayStats();
       const d = await q.getAllDrivers();
       const online = d.filter(x => ['online','busy'].includes(x.status)).length;
-      // Реферальная статистика
-      const refStats = await db.query(
-        `SELECT COUNT(*) FILTER(WHERE status='activated') AS activated,
-                COUNT(*) FILTER(WHERE status='pending') AS pending
-         FROM referrals`
-      ).catch(()=>({rows:[{activated:0,pending:0}]}));
-      const ref = refStats.rows[0];
       await wa.sendText(phone,
         `📊 *Сегодня:*
 
@@ -154,9 +146,7 @@ const handle = async (phone, msg, session) => {
 📦 Всего: *${s.total}*
 💰 Оборот: *${Number(s.revenue).toLocaleString()} тг*
 
-👥 Онлайн: *${online}/${d.length}*
-
-🎁 Рефералов всего: *${parseInt(ref.activated)+parseInt(ref.pending)}* (активных: *${ref.activated}*)`
+👥 Онлайн: *${online}/${d.length}*`
       );
       return;
     }
@@ -215,24 +205,14 @@ const handle = async (phone, msg, session) => {
 
     // ── ПРОГРАММЫ ЛОЯЛЬНОСТИ ──────────────────────────────────
     if (lo === 'акции') {
-      const [refEnabled, refBonus, loyEnabled, loyEvery, loyBonus] = await Promise.all([
-        q.getSetting('referral_enabled'),
-        q.getSetting('referral_bonus'),
+      const [loyEnabled, loyEvery, loyBonus] = await Promise.all([
         q.getSetting('loyalty_enabled'),
         q.getSetting('loyalty_every'),
         q.getSetting('loyalty_bonus'),
       ]);
-      const refStatus = refEnabled !== 'false' ? '🟢 Включена' : '🔴 Выключена';
       const loyStatus = loyEnabled !== 'false' ? '🟢 Включена' : '🔴 Выключена';
       await wa.sendText(phone,
         `🎁 *Статус программ:*
-
-` +
-        `*Реферальная программа:* ${refStatus}
-` +
-        `  • Бонус рефереру: *${refBonus || 1} поездка*
-` +
-        `  • Условие: друг должен завершить 1-ю поездку
 
 ` +
         `*Программа лояльности:* ${loyStatus}
@@ -244,31 +224,10 @@ const handle = async (phone, msg, session) => {
 ` +
         `Команды:
 ` +
-        `• *Реферал вкл/выкл*
-` +
-        `• *Реферал бонус 2* — задать кол-во бонусных поездок
-` +
         `• *Лояльность вкл/выкл*
 ` +
         `• *Лояльность каждые 5* — каждая 5-я бесплатная`
       );
-      return;
-    }
-    if (lo === 'реферал вкл') {
-      await q.setSetting('referral_enabled', 'true');
-      await wa.sendText(phone, '✅ Реферальная программа *включена*.');
-      return;
-    }
-    if (lo === 'реферал выкл') {
-      await q.setSetting('referral_enabled', 'false');
-      await wa.sendText(phone, `🔴 Реферальная программа *выключена*.\n\nНакопленные бонусы у клиентов сохраняются, но не начисляются новые.`);
-      return;
-    }
-    if (lo.startsWith('реферал бонус ')) {
-      const n = parseInt(text.split(' ')[2]);
-      if (isNaN(n) || n < 1 || n > 10) { await wa.sendText(phone, `❌ Укажи число от 1 до 10.\nПример: *Реферал бонус 2*`); return; }
-      await q.setSetting('referral_bonus', String(n));
-      await wa.sendText(phone, `✅ Бонус рефереру: *${n} поездка*.\n\nНовые рефералы получат обновлённый бонус.`);
       return;
     }
     if (lo === 'лояльность вкл') {

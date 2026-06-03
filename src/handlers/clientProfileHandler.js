@@ -54,22 +54,6 @@ const handleProfile = async (phone, lo, text, name, user) => {
     return true
   }
 
-  // ─── МОЙ РЕФЕРАЛЬНЫЙ КОД ─────────────────────────────────────
-  if (['мой код','реферал','пригласить','моя ссылка','бонусный код','реферальный','промокод','код друга'].some(w => lo.includes(w))) {
-    const code = await q.getOrCreateReferralCode(phone).catch(() => null)
-    if (!code) { await wa.sendText(phone, '❌ Не удалось получить код. Попробуйте позже.'); return true }
-    const refStats = await q.getReferralStats(phone).catch(() => null)
-    const invited = refStats?.activated || 0
-    const bonus = refStats?.bonus_trips || 0
-    await wa.sendText(phone,
-      '🎁 *Ваш реферальный код:*\n\n🔑 *' + code + '*\n\n' +
-      'Поделитесь кодом с другом — когда он совершит первую поездку, вы получите *бесплатную поездку!* 🎉\n\n' +
-      '📊 Приглашено друзей: *' + invited + '*\n' +
-      '🎫 Бонусных поездок в запасе: *' + bonus + '*'
-    )
-    return true
-  }
-
   // ─── ИСТОРИЯ ПОЕЗДОК ──────────────────────────────────────────
   if (['история','мои поездки','поездки','тарихым','сапарым','поездка'].some(w => lo.includes(w))) {
     const hist = await db.query(

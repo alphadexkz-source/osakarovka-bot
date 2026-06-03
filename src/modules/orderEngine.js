@@ -38,14 +38,12 @@ const create = async (clientPhone, destination, priceInfo) => {
   const client = await q.getUser(clientPhone)
   if (!client) return null
 
-  const [referralEnabled, loyaltyEnabled, loyaltyEvery] = await Promise.all([
-    q.getSetting('referral_enabled'), q.getSetting('loyalty_enabled'), q.getSetting('loyalty_every'),
+  const [loyaltyEnabled, loyaltyEvery] = await Promise.all([
+    q.getSetting('loyalty_enabled'), q.getSetting('loyalty_every'),
   ])
-  const bonusTrips = await q.getBonusTrips(clientPhone)
   const everyN = parseInt(loyaltyEvery) || config.FREE_TRIP_EVERY
-  let isFree = false, freeReason = null
-  if (referralEnabled !== 'false' && bonusTrips > 0) { isFree = true; freeReason = 'bonus'; await q.useBonusTrip(clientPhone) }
-  else if (loyaltyEnabled !== 'false' && (client.trip_count + 1) % everyN === 0) { isFree = true; freeReason = 'loyalty' }
+  let isFree = false
+  if (loyaltyEnabled !== 'false' && (client.trip_count + 1) % everyN === 0) { isFree = true }
 
   const orderData = {
     client_id: client.id, destination,
@@ -56,7 +54,7 @@ const create = async (clientPhone, destination, priceInfo) => {
 
   const order = await q.createOrder(orderData)
   log.order('create', { orderId: order.id, client: clientPhone, dest: destination, price: priceInfo.price, isFree })
-  await notify.clientSearching(clientPhone, destination, priceInfo.price, isFree, freeReason)
+  await notify.clientSearching(clientPhone, destination, priceInfo.price, isFree)
   await q.setSession(clientPhone, 'waiting_driver', { order_id: order.id })
 
   // Уведомление если ищем долго (3 мин)
@@ -211,16 +209,7 @@ const complete = async (orderId, driverPhone) => {
   const driver = await q.getDriver(driverPhone)
   await q.updateOrder(orderId, { status: 'completed', completed_at: new Date() })
   log.order('complete', { orderId, driver: driverPhone, client: order.client_phone, price: order.price, isFree: order.is_free })
-  const newTripCount = await q.incrementTripCount(order.client_phone)
-  if (newTripCount === 1) {
-    const client = await q.getUser(order.client_phone)
-    if (client) {
-      const refResult = await q.activateReferral(client.id)
-      if (refResult?.referrerPhone) {
-        await wa.sendText(refResult.referrerPhone, '🎉 *Ваш друг совершил первую поездку!*\n\n🎁 Вам начислена *1 бесплатная поездка!*\nПользуйтесь на здоровье! 😊')
-      }
-    }
-  }
+  await q.incrementTripCount(order.client_phone)
   await notify.clientCompleted(order.client_phone, order.price, order.is_free, order.destination)
   await q.setSession(order.client_phone, 'idle', {})
 

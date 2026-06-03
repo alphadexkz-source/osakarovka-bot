@@ -5,7 +5,6 @@ const orderQueries   = require('./orderQueries')
 const sessionQueries = require('./sessionQueries')
 const tariffQueries  = require('./tariffQueries')
 const adminQueries   = require('./adminQueries')
-const referralQueries = require('./referralQueries')
 const systemQueries  = require('./systemQueries')
 
 module.exports = {
@@ -15,6 +14,5 @@ module.exports = {
   ...sessionQueries,
   ...tariffQueries,
   ...adminQueries,
-  ...referralQueries,
   ...systemQueries,
 }

@@ -1,5 +1,6 @@
 const Groq = require('groq-sdk');
 const db   = require('../db/index');
+const { SYSTEM_CONTEXT } = require('./prompts');
 
 let groq = null;
 const getGroq = () => {
@@ -139,8 +140,7 @@ const getAnalysis = async (text) => {
       getGroq().chat.completions.create({
         messages: [{
           role: 'system',
-          content: `Ты — диспетчер такси в посёлке Осакаровка, Казахстан.
-Проанализируй сообщение клиента. Вызови инструмент analyze_message.
+          content: SYSTEM_CONTEXT + `\n\nПроанализируй сообщение клиента. Вызови инструмент analyze_message.
 
 is_address=true — если это место или адрес куда нужно ехать:
 • улица с номером дома ("Школьная 5", "Достык 12")

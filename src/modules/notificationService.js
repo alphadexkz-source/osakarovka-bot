@@ -3,10 +3,9 @@ const q = require('../db/queries');
 const db = require('../db/index');
 const { smartFarewell, detectLanguage } = require('./greetingService');
 
-const clientSearching = async (phone, destination, price, isFree, freeReason) => {
+const clientSearching = async (phone, destination, price, isFree) => {
   let p;
   if (!isFree) p = `💰 Цена: *${price} тг*`;
-  else if (freeReason==='bonus') p = '🎁 *БЕСПЛАТНО* (реферальный бонус!)';
   else p = '🎁 *БЕСПЛАТНО* (ваша 10-я поездка!)';
   await wa.sendText(phone, `✅ Заказ принят!\n\n📍 Куда: *${destination}*\n${p}\n\n🔍 Ищем водителя...`);
 };
@@ -28,29 +27,19 @@ const clientInTrip   = async (phone, destination) =>
   wa.sendText(phone, `🚗 *Поездка началась!*\n\n🏁 Едем: *${destination}*\n\nПриятной дороги! 😊`);
 
 const clientCompleted = async (phone, price, isFree, destination) => {
-  const user = await db.query('SELECT trip_count, bonus_trips, name, language FROM users WHERE phone=$1', [phone])
+  const user = await db.query('SELECT trip_count, name, language FROM users WHERE phone=$1', [phone])
     .then(r => r.rows[0]).catch(() => null);
   const tripCount = user?.trip_count || 0;
   const freeUsed  = Math.floor(tripCount / 10);
   const nextFree  = 10 - (tripCount % 10);
   const freeLine  = isFree ? '\n🎉 *Эта поездка была бесплатной!*' : '';
-  const bonusLine = (user?.bonus_trips > 0) ? `\n🎁 Бесплатных в запасе: *${user.bonus_trips}*` : '';
-
-  // Реферальный код — показываем каждые 5 поездок
-  let referralLine = '';
-  if (tripCount > 0 && tripCount % 5 === 0) {
-    try {
-      const code = await q.getOrCreateReferralCode(phone).catch(() => null);
-      if (code) referralLine = `\n\n🎁 *Пригласи друга:* код *${code}*\nДруг совершит 1 поездку → ты получишь бесплатную!`;
-    } catch(e) {}
-  }
 
   // Умное прощание через Groq
   try {
     const lang = user?.language || detectLanguage('');
     const farewell = await smartFarewell(user?.name || 'Клиент', lang, tripCount, isFree);
     if (farewell) {
-      await wa.sendText(phone, farewell + `\n\n📊 Поездок: *${tripCount}* | ⭐ До бесплатной: *${nextFree}*${bonusLine}${referralLine}`);
+      await wa.sendText(phone, farewell + `\n\n📊 Поездок: *${tripCount}* | ⭐ До бесплатной: *${nextFree}*`);
       return;
     }
   } catch(e) { console.error('[clientCompleted:farewell]', e.message); }
@@ -60,8 +49,8 @@ const clientCompleted = async (phone, price, isFree, destination) => {
     `🙏 Спасибо за поездку!${freeLine}\n\n` +
     `📊 *Ваша статистика:*\n` +
     `🚖 Поездок всего: *${tripCount}*\n` +
-    `🎁 Бесплатных использовано: *${freeUsed}*${bonusLine}\n` +
-    `⭐ До следующей бесплатной: *${nextFree}*${referralLine}\n\n` +
+    `🎁 Бесплатных использовано: *${freeUsed}*\n` +
+    `⭐ До следующей бесплатной: *${nextFree}*\n\n` +
     `*еОсакаровка Сервис* ждёт вас снова! 😊`
   );
 };
