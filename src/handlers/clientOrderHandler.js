@@ -36,9 +36,16 @@ const CONFIRM = ['да','ok','ок','yes','подтверждаю','поехал
 const isCancel  = (lo) => CANCEL_EXACT.some(w => lo === w) || CANCEL_CONTAINS.some(w => lo === w || lo.includes(w))
 const isConfirm = (lo) => CONFIRM.some(w => lo === w)
 
-// Слова подтверждения и отмены для голоса (шире чем текстовые)
-const CONFIRM_VOICE = ['да', 'ок', 'yes', 'подтверждаю', 'иә', 'ия', 'иа', 'аламын', 'поехали', 'конечно']
-const CANCEL_VOICE  = ['нет', 'отмена', 'не надо', 'жоқ', 'стоп', 'cancel']
+// Проверяет что слово w встречается в строке s как отдельное слово (не внутри другого).
+// Покрывает: точное совпадение, начало, конец, середина строки.
+const hasWord = (s, w) =>
+  s === w ||
+  s.startsWith(w + ' ') ||
+  s.endsWith(' ' + w) ||
+  s.includes(' ' + w + ' ')
+
+const CONFIRM_VOICE = ['да', 'ок', 'окей', 'yes', 'поехали', 'подтверждаю', 'конечно', 'ага', 'иә', 'ия', 'добро', 'аламын']
+const CANCEL_VOICE  = ['нет', 'не', 'отмена', 'отменить', 'не надо', 'жоқ', 'жок', 'стоп', 'cancel']
 
 /**
  * Основная точка входа для состояния confirming.
@@ -47,7 +54,6 @@ const CANCEL_VOICE  = ['нет', 'отмена', 'не надо', 'жоқ', 'с�
  */
 const handle = async (phone, name, msg, session) => {
   const { text, type, mediaUrl } = msg
-  const state = session?.state || 'idle'
 
   // ─── Голос → транскрибируем → обрабатываем ───────────────────
   if (type === 'voice') {
@@ -56,19 +62,25 @@ const handle = async (phone, name, msg, session) => {
     if (!voiceText) return
 
     const ctx = session?.ctx || {}
-    const voiceLo = voiceText.toLowerCase().trim()
-      .replace(/[.,!?;:]+/g, '')
-      .replace(/\b(дааа|даа|даась|конечно|поехали|окей|угу|ага)\b/g, 'да')
-      .replace(/\b(неет|нее)\b/g, 'нет')
 
-    if (CONFIRM_VOICE.some(w => voiceLo === w || voiceLo.includes(w))) {
+    // Нормализация: убираем знаки препинания (→ пробел), схлопываем пробелы
+    const voiceLo = voiceText.toLowerCase()
+      .trim()
+      .replace(/[.,!?;:'"«»—–]/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim()
+
+    const isVoiceConfirm = CONFIRM_VOICE.some(w => hasWord(voiceLo, w))
+    const isVoiceCancel  = CANCEL_VOICE.some(w => hasWord(voiceLo, w))
+
+    if (isVoiceConfirm && !isVoiceCancel) {
       if (!ctx.destination) return
       return orderEngine.create(phone, ctx.destination, {
         price: ctx.price,
         tariff: ctx.tariff_id ? { id: ctx.tariff_id } : null,
       })
     }
-    if (CANCEL_VOICE.some(w => voiceLo === w || voiceLo.includes(w))) {
+    if (isVoiceCancel) {
       await q.clearSession(phone)
       await wa.sendText(phone, '❌ Заказ отменён. Напишите новый адрес.')
       return
