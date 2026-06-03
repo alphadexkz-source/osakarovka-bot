@@ -10,6 +10,15 @@ const { recognizeVoice } = require('../modules/voiceRecognizer')
 const { detectVoiceIntent } = require('../modules/voiceCommands')
 const log = require('../logger')
 
+// Добавляет подсказку о старом названии улицы если адрес содержит переименованную улицу
+const addStreetAlias = (addr) => {
+  const lo = addr.toLowerCase()
+  for (const [newName, oldName] of Object.entries(config.STREET_ALIASES)) {
+    if (lo.includes(newName)) return addr + '\n📋 ' + oldName
+  }
+  return addr
+}
+
 const INTERCITY = [
   // Сёла Осакаровского района
   'есиль','литвинское','литвинка','5 поселок','пятый поселок',
@@ -83,7 +92,7 @@ const handle = async (phone, name, msg, session) => {
     // Неясное намерение — повторяем вопрос с кнопками
     if (ctx.destination) {
       await wa.sendButtons(phone,
-        '🚖 *Ваш заказ:*\n\n📍 Куда: *' + ctx.destination + '*\n💰 Цена: *' + ctx.price + ' тг*\n\nВсё верно?',
+        '🚖 *Ваш заказ:*\n\n📍 Куда: *' + addStreetAlias(ctx.destination) + '*\n💰 Цена: *' + ctx.price + ' тг*\n\nВсё верно?',
         [{ id: 'confirm_order', text: '✅ Да, поехали!' }, { id: 'cancel_new', text: '❌ Отмена' }]
       )
     }
@@ -114,8 +123,9 @@ const handleNewOrder = async (phone, name, text, user) => {
   const pi = await tariff.getPrice(text)
   const nightNote = pi.isNight ? '\n🌙 *Ночной тариф*' : ''
   const freeNote = user && (user.trip_count+1) % config.FREE_TRIP_EVERY === 0 ? '\n\n🎁 *Эта поездка будет БЕСПЛАТНОЙ!*' : ''
+  const displayWithAlias = addStreetAlias(displayAddress)
   await wa.sendButtons(phone,
-    '🚖 *Ваш заказ:*\n\n📍 Куда: *' + displayAddress + '*\n💰 Цена: *' + pi.price + ' тг*' + nightNote + freeNote + '\n\nВсё верно?',
+    '🚖 *Ваш заказ:*\n\n📍 Куда: *' + displayWithAlias + '*\n💰 Цена: *' + pi.price + ' тг*' + nightNote + freeNote + '\n\nВсё верно?',
     [{ id:'confirm_order', text:'✅ Да, поехали!' }, { id:'cancel_new', text:'❌ Отмена' }])
   await q.setSession(phone, 'confirming', { destination: displayAddress, price: pi.price, tariff_id: pi.tariff?.id||null })
 }
