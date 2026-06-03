@@ -159,6 +159,31 @@ const blacklistDriver = async (phone, blocked) => {
   await blacklistUser(phone, blocked)
 }
 
+const setBreakUntil = async (phone, breakUntil) => {
+  await db.query(
+    `UPDATE drivers SET break_until=$2 WHERE user_id=(SELECT id FROM users WHERE phone=$1)`,
+    [phone, breakUntil]
+  )
+}
+
+const clearBreakUntil = async (phone) => {
+  await db.query(
+    `UPDATE drivers SET break_until=NULL WHERE user_id=(SELECT id FROM users WHERE phone=$1)`,
+    [phone]
+  )
+}
+
+const getExpiredBreaks = async () => {
+  const r = await db.query(
+    `SELECT u.phone, d.full_name FROM drivers d
+     JOIN users u ON d.user_id=u.id
+     WHERE d.status='offline'
+       AND d.break_until IS NOT NULL
+       AND d.break_until <= NOW()`
+  )
+  return r.rows
+}
+
 module.exports = {
   getDriver,
   getDriverById,
@@ -176,4 +201,7 @@ module.exports = {
   getInactiveDrivers,
   getLongWaitDrivers,
   blacklistDriver,
+  setBreakUntil,
+  clearBreakUntil,
+  getExpiredBreaks,
 }

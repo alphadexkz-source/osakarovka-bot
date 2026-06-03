@@ -10,6 +10,7 @@ const driverRegistrationHandler = require('./driverRegistrationHandler')
 const driverOrderHandler = require('./driverOrderHandler')
 const driverCommandHandler = require('./driverCommandHandler')
 
+const log = require('../logger')
 const { KW: ORDER_KW, match } = driverOrderHandler
 const { KW: CMD_KW, clearBreakTimer } = driverCommandHandler
 
@@ -157,7 +158,6 @@ const handle = async (phone, msg, session) => {
     return driverCommandHandler.handleCommand(phone, lo, driver, session)
 
   } catch (err) {
-    const log = require('../logger')
     log.error('driverHandler', err, { phone, state })
     await wa.sendText(phone, 'Произошла ошибка.').catch(() => {})
   }

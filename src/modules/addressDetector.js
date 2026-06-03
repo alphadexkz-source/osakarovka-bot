@@ -92,6 +92,28 @@ const findInAddresses = async (text) => {
   }
 };
 
+// Обёртка с таймаутом для Groq вызовов
+const withTimeout = (promise, ms, fallback) => {
+  const timeout = new Promise((_, reject) =>
+    setTimeout(() => reject(new Error(`Timeout after ${ms}ms`)), ms)
+  )
+  return Promise.race([promise, timeout]).catch(() => fallback)
+}
+
+// Более умный fallback без Groq
+const looksLikeAddress = (text) => {
+  const lo = text.toLowerCase().trim()
+  // Улица + номер: "Ленина 5", "Школьная 12а"
+  if (/[а-яё]+\s+\d+/i.test(lo)) return true
+  // Только номер дома: "дом 5", "д. 5"
+  if (/дом\s*\d+|д\.?\s*\d+/i.test(lo)) return true
+  // Известные ориентиры
+  const LANDMARKS = ['больниц','школ','рынок','магазин','аптек','акимат','церков',
+                     'мечет','стадион','вокзал','остановк','почт','банк','кафе']
+  if (LANDMARKS.some(w => lo.includes(w))) return true
+  return false
+}
+
 // Core function — DB first, then Groq function calling. Result cached 1h.
 const getAnalysis = async (text) => {
   const lo = (text || '').toLowerCase().trim();
@@ -111,12 +133,13 @@ const getAnalysis = async (text) => {
     return result;
   }
 
-  // Groq function calling
+  // Groq function calling (с таймаутом 5 сек)
   try {
-    const completion = await getGroq().chat.completions.create({
-      messages: [{
-        role: 'system',
-        content: `Ты — диспетчер такси в посёлке Осакаровка, Казахстан.
+    const completion = await withTimeout(
+      getGroq().chat.completions.create({
+        messages: [{
+          role: 'system',
+          content: `Ты — диспетчер такси в посёлке Осакаровка, Казахстан.
 Проанализируй сообщение клиента. Вызови инструмент analyze_message.
 
 is_address=true — если это место или адрес куда нужно ехать:
@@ -140,13 +163,18 @@ is_address — строго boolean true или false, НИКОГДА не ст�
 Переименования улиц (всегда используй НОВОЕ название):
 • Литвинская / Литвинова → улица Алихана Бокейханова
 • Новая улица → Достык`,
-      }, { role: 'user', content: text }],
-      model: 'llama-3.3-70b-versatile',
-      tools: TOOLS,
-      tool_choice: 'required',
-      max_tokens: 100,
-      temperature: 0,
-    });
+        }, { role: 'user', content: text }],
+        model: 'llama-3.3-70b-versatile',
+        tools: TOOLS,
+        tool_choice: 'required',
+        max_tokens: 100,
+        temperature: 0,
+      }),
+      5000,
+      null
+    );
+
+    if (!completion) throw new Error('Groq timeout');
 
     const toolCall = completion.choices[0]?.message?.tool_calls?.[0];
     const raw = toolCall ? JSON.parse(toolCall.function.arguments) : { is_address: false };
@@ -160,11 +188,10 @@ is_address — строго boolean true или false, НИКОГДА не ст�
     return analysis;
   } catch (err) {
     console.error('[addressDetector:groq]', err.message);
-    // Безопасный фолбэк: только если явно похоже на адрес (есть цифра = номер дома)
-    const looksLikeAddress = /\d/.test(lo) && lo.length >= 4;
-    const fallback = { is_address: looksLikeAddress };
+    // Умный fallback через looksLikeAddress; короткий TTL (5 мин) чтобы переспросить Groq позже
+    const fallback = { is_address: looksLikeAddress(lo) };
     cache.set(lo, fallback);
-    setTimeout(() => cache.delete(lo), 300000);
+    setTimeout(() => cache.delete(lo), 300_000);
     return fallback;
   }
 };

@@ -5,6 +5,9 @@ const { isAddress } = require('../modules/addressDetector')
 const { transcribe: transcribeVoice } = require('../modules/voiceCommandHandler')
 const { getGroqReply } = require('../modules/smartReply')
 const { dailyGreeting } = require('../modules/greetingService')
+const driverMgr = require('../modules/driverManager')
+const orderEngine = require('../modules/orderEngine')
+const log = require('../logger')
 const clientOrderHandler = require('./clientOrderHandler')
 const clientInfoHandler = require('./clientInfoHandler')
 const clientProfileHandler = require('./clientProfileHandler')
@@ -78,7 +81,6 @@ const getSmartReply = (text) => {
 const handleGeneralButton = async (phone, buttonId, session) => {
   if (buttonId === 'order_as_client') { await q.setSession(phone,'driver_as_client',{}); await wa.sendText(phone,'🚖 Куда нужно ехать?'); return }
   if (buttonId === 'go_online') {
-    const driverMgr = require('../modules/driverManager')
     const r = await driverMgr.goOnline(phone)
     if (r.error === 'no_balance') { await wa.sendText(phone,'🔴 Баланс = 0. Обратитесь к администратору.'); return }
     const pos = await q.getDriverQueuePosition(phone)
@@ -87,7 +89,6 @@ const handleGeneralButton = async (phone, buttonId, session) => {
     return
   }
   if (buttonId === 'go_offline') {
-    const driverMgr = require('../modules/driverManager')
     await driverMgr.goOffline(phone)
     await wa.sendButtons(phone,'⚫ *Вы ушли с линии.*\n\nОтдыхайте!',[{id:'go_online',text:'🟢 Выйти на линию'},{id:'order_as_client',text:'🚖 Заказать такси'}])
     return
@@ -165,7 +166,7 @@ const handle = async (phone, name, msg, session) => {
     if (clientOrderHandler.isCancel(lo)) {
       const activeOrder = await q.getActiveOrderByClient(phone)
       if (activeOrder) {
-        await require('../modules/orderEngine').cancel(activeOrder.id, 'Отменен клиентом')
+        await orderEngine.cancel(activeOrder.id, 'Отменен клиентом')
         await wa.sendText(phone, '❌ *Заказ отменён.*\n\nНапишите куда ехать — найдём водителя! 🚖')
       } else {
         await q.clearSession(phone)
@@ -195,7 +196,6 @@ const handle = async (phone, name, msg, session) => {
     return clientOrderHandler.handleNewOrder(phone, name, text, user)
 
   } catch (err) {
-    const log = require('../logger')
     log.error('clientHandler', err, { phone, state })
     await wa.sendText(phone, 'Произошла ошибка. Попробуйте еще раз.').catch(()=>{})
   }

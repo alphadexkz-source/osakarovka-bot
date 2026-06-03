@@ -14,6 +14,7 @@ const { start: startTimers } = require('./modules/timerService');
 const config  = require('./config');
 const db      = require('./db/index');
 const wa      = require('./whatsapp/greenApi');
+const { getRecentMessageIds } = require('./db/queries');
 
 const app = express();
 app.use(express.json({ limit: '5mb' }));
@@ -43,6 +44,9 @@ const isDuplicate = (msgId) => {
   if (processedMsgs.has(msgId)) return true;
   processedMsgs.add(msgId);
   setTimeout(() => processedMsgs.delete(msgId), 60_000);
+  // Async запись в БД для восстановления после рестарта (fire-and-forget)
+  db.query('INSERT INTO message_dedup(msg_id) VALUES($1) ON CONFLICT DO NOTHING', [msgId])
+    .catch(() => {});
   return false;
 };
 
@@ -103,6 +107,20 @@ app.get('/', async (req, res) => {
   }
 });
 
+// Предзагрузка дедупликации из БД (восстановление после рестарта)
+const preloadMessageDedup = async () => {
+  try {
+    const recentIds = await getRecentMessageIds(60);
+    recentIds.forEach(id => {
+      processedMsgs.add(id);
+      setTimeout(() => processedMsgs.delete(id), 60_000);
+    });
+    if (recentIds.length) console.log(`[Dedup] Loaded ${recentIds.length} recent message IDs`);
+  } catch (e) {
+    console.error('[Dedup] Failed to preload message IDs:', e.message);
+  }
+};
+
 // ─── Восстановление после рестарта ────────────────────────────
 async function recoverOnStartup() {
   try {
@@ -157,6 +175,9 @@ async function recoverOnStartup() {
            WHERE status IN ('accepted','arrived') AND driver_id IS NOT NULL
          )`
     );
+
+    // 4. Предзагрузка дедупликации сообщений из БД
+    await preloadMessageDedup();
 
   } catch (err) {
     console.error('[Startup recovery]', err.message);

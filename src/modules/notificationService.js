@@ -1,5 +1,6 @@
 const wa = require('../whatsapp/greenApi');
 const q = require('../db/queries');
+const db = require('../db/index');
 const { smartFarewell, detectLanguage } = require('./greetingService');
 
 const clientSearching = async (phone, destination, price, isFree, freeReason) => {
@@ -27,7 +28,6 @@ const clientInTrip   = async (phone, destination) =>
   wa.sendText(phone, `🚗 *Поездка началась!*\n\n🏁 Едем: *${destination}*\n\nПриятной дороги! 😊`);
 
 const clientCompleted = async (phone, price, isFree, destination) => {
-  const db = require('../db/index');
   const user = await db.query('SELECT trip_count, bonus_trips, name, language FROM users WHERE phone=$1', [phone])
     .then(r => r.rows[0]).catch(() => null);
   const tripCount = user?.trip_count || 0;
@@ -40,7 +40,6 @@ const clientCompleted = async (phone, price, isFree, destination) => {
   let referralLine = '';
   if (tripCount > 0 && tripCount % 5 === 0) {
     try {
-      const q = require('../db/queries');
       const code = await q.getOrCreateReferralCode(phone).catch(() => null);
       if (code) referralLine = `\n\n🎁 *Пригласи друга:* код *${code}*\nДруг совершит 1 поездку → ты получишь бесплатную!`;
     } catch(e) {}
@@ -104,7 +103,6 @@ const driverLongWait      = async (phone) => wa.sendText(phone, `ℹ️ Вы у�
 const driverStats = async (phone, driver, stats) => {
   const icons  = {online:'🟢',busy:'🔴',offline:'⚫',blocked:'🚫'};
   const labels = {online:'На линии',busy:'В поездке',offline:'Офлайн',blocked:'Заблокирован'};
-  const db = require('../db/index');
   const week = await db.query(
     `SELECT COUNT(*) FILTER(WHERE status='completed') AS completed, COALESCE(SUM(price) FILTER(WHERE status='completed'),0) AS earned FROM orders WHERE driver_id=$1 AND created_at >= NOW() - INTERVAL '7 days'`,
     [driver.id]

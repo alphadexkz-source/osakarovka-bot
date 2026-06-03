@@ -8,6 +8,7 @@ const wa = require('../whatsapp/greenApi');
 const config = require('../config');
 // orderEngine импортируется здесь безопасно: timerService → orderEngine → нет timerService
 const orderEngine = require('./orderEngine');
+const driverMgr = require('./driverManager');
 
 // ─── Вспомогательные функции каждые 5 мин ────────────────────
 
@@ -92,6 +93,29 @@ const checkArriveWarnings = async () => {
   }
 }
 
+// ─── Восстановление перерывов водителей после рестарта ──────────────────
+
+// Водители у которых break_until истёк пока бот был выключен — переводим обратно online.
+const checkBreakTimers = async () => {
+  const expired = await q.getExpiredBreaks().catch(() => [])
+  for (const d of expired) {
+    try {
+      await q.clearBreakUntil(d.phone).catch(() => {})
+      const driver = await q.getDriver(d.phone)
+      if (driver?.status === 'offline') {
+        const r = await driverMgr.goOnline(d.phone)
+        if (r.success) {
+          const pos = await q.getDriverQueuePosition(d.phone)
+          const cnt = (await q.getOnlineDriversQueue()).length
+          await wa.sendText(d.phone,
+            '🟢 *Перерыв закончился!*\n\nВы снова на линии — *' + pos + '-й* из *' + cnt + '* водителей. Удачных заказов! 🚖'
+          )
+        }
+      }
+    } catch (e) { console.error('[Timer/break_timer]', e.message) }
+  }
+}
+
 // ─── Запуск всех крон-задач ───────────────────────────────────
 
 const start = () => {
@@ -99,9 +123,13 @@ const start = () => {
   // При старте — разобрать зависшие диспетчеризации от предыдущего запуска
   checkDispatchTimeouts().catch(e => console.error('[Timer/dispatch_timeout_startup]', e.message))
 
-  // Каждые 30 секунд — проверка зависших диспетчеризаций
+  // При старте — восстановить истёкшие перерывы
+  checkBreakTimers().catch(e => console.error('[Timer/break_timer_startup]', e.message))
+
+  // Каждую минуту — проверка зависших диспетчеризаций + истёкших перерывов
   cron.schedule('*/1 * * * *', async () => {
-    try { await checkDispatchTimeouts(); } catch (e) { console.error('[Timer/dispatch_timeout]', e.message); }
+    try { await checkDispatchTimeouts() } catch (e) { console.error('[Timer/dispatch_timeout]', e.message) }
+    try { await checkBreakTimers() } catch (e) { console.error('[Timer/break_timers]', e.message) }
   })
 
   // Каждые 2 минуты — предупреждения о долгом ожидании прибытия
@@ -109,11 +137,12 @@ const start = () => {
     try { await checkArriveWarnings(); } catch (e) { console.error('[Timer/arrive_warnings]', e.message); }
   })
 
-  // Каждые 5 мин — три задачи в одном расписании
+  // Каждые 5 мин — четыре задачи в одном расписании
   cron.schedule('*/5 * * * *', async () => {
     try { await checkStuckOrders(); }    catch(e) { console.error('[Timer/stuck_orders]', e.message); }
     try { await checkInactiveDrivers(); } catch(e) { console.error('[Timer/auto_offline]', e.message); }
     try { await warnInactiveDrivers(); }  catch(e) { console.error('[Timer/inactivity_warn]', e.message); }
+    try { await q.cleanupMessageDedup(); } catch(e) {}
   });
 
   // Каждый час — уведомление водителям кто давно ждёт без заказов

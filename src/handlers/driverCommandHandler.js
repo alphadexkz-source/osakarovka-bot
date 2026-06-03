@@ -24,6 +24,8 @@ const clearBreakTimer = (phone) => {
     clearTimeout(breakTimers.get(phone))
     breakTimers.delete(phone)
   }
+  // Синхронизируем с БД (fire-and-forget)
+  q.clearBreakUntil(phone).catch(() => {})
 }
 
 // Обрабатывает команды кнопок водителя (не заказ). Возвращает true если обработал.
@@ -67,7 +69,7 @@ const handleCommand = async (phone, lo, driver, session) => {
 
   // ─── НА ЛИНИЮ ─────────────────────────────────────────────────
   if (match(lo, KW.ONLINE)) {
-    clearBreakTimer(phone)
+    clearBreakTimer(phone) // уже вызывает q.clearBreakUntil внутри
     await q.clearSession(phone)
     const r = await driverMgr.goOnline(phone)
     if (r.error === 'no_balance') { await wa.sendText(phone, '🔴 Баланс = 0.\nОбратитесь к администратору для пополнения.'); return }
@@ -123,6 +125,9 @@ const handleCommand = async (phone, lo, driver, session) => {
     const mins = Math.min(parseInt(breakMatch[1]), 180)
     await driverMgr.goOffline(phone)
     await wa.sendText(phone, '⏸ *Перерыв ' + mins + ' мин.*\n\nОтдыхайте! ☕ Автоматически верну вас на линию через *' + mins + ' мин.*')
+    // Сохраняем время окончания перерыва в БД — для восстановления после рестарта
+    const breakUntilDate = new Date(Date.now() + mins * 60 * 1000)
+    await q.setBreakUntil(phone, breakUntilDate).catch(() => {})
     const breakTimer = setTimeout(async () => {
       try {
         breakTimers.delete(phone)
