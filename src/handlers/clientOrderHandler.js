@@ -58,8 +58,20 @@ const handle = async (phone, name, msg, session) => {
   // ─── Голос → транскрибируем → обрабатываем ───────────────────
   if (type === 'voice') {
     if (!mediaUrl) return
+    // Сообщаем что слышим (clientHandler здесь обходится, поэтому пишем сами)
+    await wa.sendText(phone, '🎤 Распознаю голосовое сообщение...')
     const voiceText = await transcribeVoice(mediaUrl, phone)
-    if (!voiceText) return
+    if (!voiceText) {
+      await new Promise(r => setTimeout(r, 800))
+      const ctx = session?.ctx || {}
+      if (ctx.destination) {
+        await wa.sendButtons(phone,
+          '🎤 Не удалось распознать.\n\n🚖 *Ваш заказ:*\n\n📍 Куда: *' + ctx.destination + '*\n💰 Цена: *' + ctx.price + ' тг*\n\nВсё верно?',
+          [{ id: 'confirm_order', text: '✅ Да, поехали!' }, { id: 'cancel_new', text: '❌ Отмена' }]
+        )
+      }
+      return
+    }
 
     const ctx = session?.ctx || {}
 
@@ -85,8 +97,9 @@ const handle = async (phone, name, msg, session) => {
       await wa.sendText(phone, '❌ Заказ отменён. Напишите новый адрес.')
       return
     }
-    // Неясный ответ — повторяем кнопки
+    // Неясный ответ — небольшая пауза, повторяем кнопки
     if (ctx.destination) {
+      await new Promise(r => setTimeout(r, 800))
       await wa.sendButtons(phone,
         '🚖 *Ваш заказ:*\n\n📍 Куда: *' + ctx.destination + '*\n💰 Цена: *' + ctx.price + ' тг*\n\nВсё верно?',
         [{ id: 'confirm_order', text: '✅ Да, поехали!' }, { id: 'cancel_new', text: '❌ Отмена' }]
