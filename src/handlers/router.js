@@ -164,16 +164,19 @@ const route = async (body) => {
       const driverStatus = driver?.status || 'offline';
       const inReg = session?.state?.startsWith('reg_');
 
-      // Заблокированный — стоп (не передаём в clientHandler)
-      if (driver?.status === 'blocked') {
-        await wa.sendText(phone, '🚫 Ваш аккаунт заблокирован. Обратитесь к администратору.');
-        return;
-      }
+      const isFullyRegistered = driver &&
+        driver.full_name &&
+        driver.car_plate &&
+        driver.car_make &&
+        driver.status !== 'blocked';
 
-      // Неполная регистрация — передаём в clientHandler
-      if (!inReg && (!driver || !driver.full_name || !driver.car_plate)) {
-        console.log(`[Router] Неполный водитель ${phone} — перенаправляем в клиентский режим`);
-        await wa.sendText(phone, '⚠️ Завершите регистрацию водителя.\n\nОтправьте код водителя снова или обратитесь к администратору.');
+      if (!inReg && !isFullyRegistered) {
+        console.log(`[Router] Неполный водитель ${phone} — перенаправляем как клиента`);
+        await wa.sendText(phone,
+          '⚠️ Вы не завершили регистрацию водителя.\n\n' +
+          'Чтобы работать водителем — завершите регистрацию.\n' +
+          'Если хотите заказать такси — просто напишите адрес.'
+        );
         return clientHandler.handle(phone, name, msg, session);
       }
 
