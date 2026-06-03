@@ -7,7 +7,7 @@ const config = require('../config')
 const { isAddress, resolveAddress } = require('../modules/addressDetector')
 const { parseScheduleTime } = require('../modules/smartReply')
 const { transcribe: transcribeVoice } = require('../modules/voiceCommandHandler')
-const { containsAny } = require('../modules/voiceUtils')
+const { detectVoiceIntent } = require('../modules/voiceCommands')
 const log = require('../logger')
 
 const INTERCITY = [
@@ -38,8 +38,6 @@ const CONFIRM = ['да','ok','ок','yes','подтверждаю','поехал
 const isCancel  = (lo) => CANCEL_EXACT.some(w => lo === w) || CANCEL_CONTAINS.some(w => lo === w || lo.includes(w))
 const isConfirm = (lo) => CONFIRM.some(w => lo === w)
 
-const CONFIRM_VOICE = ['да', 'ок', 'окей', 'yes', 'поехали', 'подтверждаю', 'конечно', 'ага', 'иә', 'ия', 'добро', 'аламын']
-const CANCEL_VOICE  = ['нет', 'не', 'отмена', 'отменить', 'не надо', 'жоқ', 'жок', 'стоп', 'cancel']
 
 /**
  * Основная точка входа для состояния confirming.
@@ -71,9 +69,9 @@ const handle = async (phone, name, msg, session) => {
     log.msg(phone, 'client', state, 'voice_confirm', voiceText)
 
     const ctx = session?.ctx || {}
-
-    const isVoiceConfirm = containsAny(voiceText, CONFIRM_VOICE)
-    const isVoiceCancel  = containsAny(voiceText, CANCEL_VOICE)
+    const { intent: voiceIntent } = detectVoiceIntent(voiceText)
+    const isVoiceConfirm = voiceIntent === 'confirm'
+    const isVoiceCancel  = voiceIntent === 'cancel'
 
     if (isVoiceConfirm && !isVoiceCancel) {
       if (!ctx.destination) return

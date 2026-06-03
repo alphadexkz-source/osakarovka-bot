@@ -5,6 +5,7 @@ const orderEngine = require('../modules/orderEngine')
 const chatRelay = require('../modules/chatRelay')
 const tariff = require('../modules/tariffEngine')
 const { transcribe: transcribeVoice } = require('../modules/voiceCommandHandler')
+const { detectVoiceIntent } = require('../modules/voiceCommands')
 const { getGroqDriverReply } = require('../modules/smartReply')
 const driverRegistrationHandler = require('./driverRegistrationHandler')
 const driverOrderHandler = require('./driverOrderHandler')
@@ -91,14 +92,32 @@ const handle = async (phone, msg, session) => {
 
       const driver2 = await q.getDriver(phone)
       if (!driver2) { await wa.sendText(phone, '⚠️ Водитель не найден.'); return }
-      if (driver2?.status === 'busy') {
+
+      const { intent } = detectVoiceIntent(vlo)
+      log.msg(phone, 'driver', state, 'voice_intent', intent + ' | ' + vlo.slice(0, 60))
+
+      // В поездке — обрабатываем команды завершения
+      if (driver2.status === 'busy') {
         const order2 = await q.getActiveOrderByDriver(phone)
         if (order2) {
-          if (await driverOrderHandler.handleBusyCommands(phone, vlo, order2)) return
+          if (intent === 'arrived')    { await orderEngine.arrived(order2.id, phone); return }
+          if (intent === 'complete')   { await orderEngine.complete(order2.id, phone); return }
+          if (intent === 'false_call') { await orderEngine.falseCall(order2.id, phone); return }
         }
       }
-      if (await driverOrderHandler.handleAcceptSkip(phone, vlo)) return
-      if (match(vlo, CMD_KW.ONLINE)) {
+
+      // Принял / пропустил
+      if (intent === 'accept_order') {
+        const p2 = await q.getPendingOrderForDriver(phone)
+        if (p2) await orderEngine.accept(p2.id, phone)
+        else await wa.sendText(phone, 'Нет предложения.')
+        return
+      }
+      if (intent === 'skip') { await q.moveDriverToEndOfQueue(phone); await wa.sendText(phone, 'Пропущено.'); return }
+
+      // На линию / с линии
+      if (intent === 'go_online') {
+        clearBreakTimer(phone)
         await q.clearSession(phone)
         const r2 = await driverMgr.goOnline(phone)
         if (r2.error === 'no_balance') { await wa.sendText(phone, 'Баланс = 0. Обратитесь к администратору.'); return }
@@ -107,8 +126,17 @@ const handle = async (phone, msg, session) => {
         await wa.sendText(phone, '🟢 *Вы на линии!*\n📋 Позиция: *' + pos2 + '-й* из *' + cnt2 + '* водителей.')
         return
       }
-      if (match(vlo, CMD_KW.OFFLINE)) { await driverMgr.goOffline(phone); await wa.sendText(phone, '⚫ Ушли с линии. Отдыхайте!'); return }
-      if (match(vlo, CMD_KW.STATS))   { const stats2 = await q.getDriverTodayStats(driver2?.id); await require('../modules/notificationService').driverStats(phone, driver2, stats2); return }
+      if (intent === 'go_offline') { await driverMgr.goOffline(phone); await wa.sendText(phone, '⚫ Ушли с линии. Отдыхайте!'); return }
+
+      // Статистика
+      if (intent === 'stats') {
+        const notify = require('../modules/notificationService')
+        const stats2 = await q.getDriverTodayStats(driver2.id)
+        await notify.driverStats(phone, driver2, stats2)
+        return
+      }
+
+      // Groq fallback для неизвестных команд
       const groqVoice = await getGroqDriverReply(voiceText, driver2?.full_name, null, { status: driver2?.status }).catch(() => null)
       await wa.sendText(phone, groqVoice || '🎤 Сказано: *"' + voiceText + '"*\n\nКоманды: *принял, прибыл, свободен, ложный, на линию, с линии, статистика*')
       return
