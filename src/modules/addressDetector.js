@@ -7,7 +7,7 @@ const getGroq = () => {
   return groq;
 };
 
-// Cache stores full analysis: { is_address, destination, is_saved_place, comment, _db }
+// Cache stores full analysis: { is_address, destination, comment, _db }
 const cache = new Map();
 
 const NOT_ADDRESS = [
@@ -129,10 +129,12 @@ is_address=false — если это:
 • вопрос ("работаете?", "есть такси?", "сколько стоит?")
 • ответ/реакция ("да", "нет", "ок", "спасибо", "отмена")
 
-destination — нормализованный адрес без лишних слов:
+destination — нормализованный адрес (строка), без лишних слов:
 • "к другу на Бокейханова 15" → "ул. Алихана Бокейханова, 15"
 • "в больницу" → "больница"
-• "домой" → не заполнять (используй is_saved_place=home)
+• "домой" / "на работу" → оставь destination пустой строкой ""
+
+is_address — строго boolean true или false, НИКОГДА не строка "true"/"false".
 
 Переименования улиц (всегда используй НОВОЕ название):
 • Литвинская / Литвинова → улица Алихана Бокейханова
@@ -147,11 +149,10 @@ destination — нормализованный адрес без лишних с
 
     const toolCall = completion.choices[0]?.message?.tool_calls?.[0];
     const raw = toolCall ? JSON.parse(toolCall.function.arguments) : { is_address: false };
-    // Groq иногда возвращает строку "true"/"false" вместо boolean — нормализуем
+    // Нормализуем is_address на случай если Groq вернул строку вместо boolean
     const analysis = {
       ...raw,
       is_address: raw.is_address === true || raw.is_address === 'true',
-      is_saved_place: 'none',
     };
     cache.set(lo, analysis);
     setTimeout(() => cache.delete(lo), 3600000);
