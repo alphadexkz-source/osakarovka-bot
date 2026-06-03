@@ -35,6 +35,41 @@ const CONFIRM = ['да','ok','ок','yes','подтверждаю','поехал
 const isCancel  = (lo) => CANCEL_EXACT.some(w => lo === w) || CANCEL_CONTAINS.some(w => lo === w || lo.includes(w))
 const isConfirm = (lo) => CONFIRM.some(w => lo === w)
 
+// Специальная обработка голоса в состоянии confirming.
+// Нормализует нечёткие голосовые «да/нет» и повторяет вопрос если неясно.
+const handleVoiceConfirming = async (phone, voiceText, session) => {
+  const ctx = session?.ctx || {}
+  const voiceLo = voiceText.toLowerCase().trim()
+    .replace(/[.,!?;:]+/g, '')
+    .replace(/\b(дааа|даа|даась|конечно|поехали|окей|угу|ага)\b/g, 'да')
+    .replace(/\b(неет|нее|не|жоқ|жок)\b/g, 'нет')
+
+  const CONFIRM_VOICE = ['да', 'ок', 'yes', 'подтверждаю', 'иә', 'ия', 'иа', 'аламын']
+  const CANCEL_VOICE  = ['нет', 'отмена', 'не надо', 'жоқ', 'стоп', 'cancel']
+
+  if (CONFIRM_VOICE.some(w => voiceLo === w || voiceLo.includes(w))) {
+    if (!ctx.destination) return
+    return orderEngine.create(phone, ctx.destination, {
+      price: ctx.price,
+      tariff: ctx.tariff_id ? { id: ctx.tariff_id } : null,
+    })
+  }
+
+  if (CANCEL_VOICE.some(w => voiceLo === w || voiceLo.includes(w))) {
+    await q.clearSession(phone)
+    await wa.sendText(phone, '❌ Заказ отменён. Напишите новый адрес.')
+    return
+  }
+
+  // Голос не распознан как подтверждение/отмена — показываем кнопки ещё раз
+  if (ctx.destination) {
+    await wa.sendButtons(phone,
+      '🚖 *Ваш заказ:*\n\n📍 Куда: *' + ctx.destination + '*\n💰 Цена: *' + ctx.price + ' тг*\n\nВсё верно?',
+      [{ id: 'confirm_order', text: '✅ Да, поехали!' }, { id: 'cancel_new', text: '❌ Отмена' }]
+    )
+  }
+}
+
 const handleNewOrder = async (phone, name, text, user) => {
   if (!text || text.length < 2) return
   const active = await q.getActiveOrderByClient(phone)
@@ -202,4 +237,4 @@ const handleOrderButton = async (phone, buttonId, session) => {
   return false
 }
 
-module.exports = { handleNewOrder, handleOrderState, handleOrderButton, isIntercity, isCancel, isConfirm, INTERCITY, CANCEL_EXACT, CANCEL_CONTAINS, CONFIRM }
+module.exports = { handleNewOrder, handleVoiceConfirming, handleOrderState, handleOrderButton, isIntercity, isCancel, isConfirm, INTERCITY, CANCEL_EXACT, CANCEL_CONTAINS, CONFIRM }

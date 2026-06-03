@@ -109,6 +109,10 @@ const handle = async (phone, name, msg, session) => {
       await wa.sendText(phone, '🎤 Распознаю голосовое сообщение...')
       const recognized = await transcribeVoice(mediaUrl, phone)
       if (recognized) {
+        // Голос при подтверждении заказа — специальная нормализация «да/нет»
+        if (state === 'confirming') {
+          return clientOrderHandler.handleVoiceConfirming(phone, recognized, session)
+        }
         let voiceText = recognized
         // Если ждём оценку — конвертируем числа словами в цифры
         if (state === 'waiting_rating') {
