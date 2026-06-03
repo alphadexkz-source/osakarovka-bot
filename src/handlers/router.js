@@ -110,6 +110,17 @@ const route = async (body) => {
       if (msg.type === 'button' && msg.buttonId && driverButtonPfx.some(p => msg.buttonId.startsWith(p)))
         return driverHandler.handle(phone, msg, session);
       if (GO_ONLINE.some(w => lo.includes(w))) return driverHandler.handle(phone, msg, session);
+      // FIX: команды водителя при offline — в driverHandler (не в clientHandler где попадают в Groq)
+      const DRIVER_CMDS = [
+        'статистика','стат','итоги','заработок','қанша',
+        'очередь','позиция','кезек',
+        'принял','принять','беру','аламын','принимаю',
+        'прибыл','приехал','на месте','подъехал','стою',
+        'свободен','завершил','бостымын','доехали',
+        'ложный','нет клиента','жалған','пропустить','пропуск','откізу',
+        'мой код','реферал','faq','фак','перерыв',
+      ];
+      if (DRIVER_CMDS.some(w => lo.includes(w))) return driverHandler.handle(phone, msg, session);
       return clientHandler.handle(phone, name, msg, session);
     }
 
@@ -125,6 +136,10 @@ const route = async (body) => {
       if (['driver_as_client', 'driver_chat', 'cancel_reason'].includes(session?.state) && driver)
         return driverHandler.handle(phone, msg, session);
       if (GO_ONLINE.some(w => lo.includes(w)) && driver) return driverHandler.handle(phone, msg, session);
+      if (driver) {
+        const DRIVER_CMDS = ['статистика','стат','итоги','заработок','қанша','очередь','позиция','кезек','принял','прибыл','на месте','стою','свободен','бостымын','ложный','нет клиента','жалған','пропустить','откізу','мой код','реферал','faq','фак','перерыв'];
+        if (DRIVER_CMDS.some(w => lo.includes(w))) return driverHandler.handle(phone, msg, session);
+      }
       return clientHandler.handle(phone, name, msg, session);
     }
 

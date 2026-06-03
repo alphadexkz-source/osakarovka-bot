@@ -17,10 +17,8 @@ const penalizeSkip = async (driverPhone) => {
     const db = require('../db/index');
     // Снижаем рейтинг на 0.1 но не ниже 3.0
     await db.query(`
-      UPDATE drivers SET 
-        rating = GREATEST(3.0, COALESCE(rating, 5.0) - 0.1),
-        skipped_orders = COALESCE(skipped_orders, 0) + 1,
-        total_skipped = COALESCE(total_skipped, 0) + 1
+      UPDATE drivers SET
+        rating = GREATEST(3.0, COALESCE(rating, 5.0) - 0.1)
       WHERE user_id = (SELECT id FROM users WHERE phone = $1)
     `, [driverPhone]);
     const driver = await q.getDriver(driverPhone);

@@ -224,9 +224,12 @@ const handle = async (phone, msg, session) => {
     if (groqReply) {
       await wa.sendText(phone, groqReply);
     } else {
+      const btns = driver.status === 'online'
+        ? [{ id:'go_offline', text:'⚫ Уйти с линии' }]
+        : [{ id:'go_online', text:'🟢 Выйти на линию' }, { id:'order_as_client', text:'🚖 Заказать такси' }];
       await wa.sendButtons(phone,
         '📋 *Команды:*\n\n🟢 *на линию* — начать работу\n⚫ *с линии* — завершить\n📊 *статистика* — заработок\n🔢 *очередь* — моя позиция\n✏️ *изменить* — обновить данные',
-        [driver.status === 'online' ? { id:'go_offline', text:'⚫ Уйти с линии' } : { id:'go_online', text:'🟢 Выйти на линию' }]
+        btns
       );
     }
 
