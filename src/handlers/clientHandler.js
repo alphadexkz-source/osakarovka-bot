@@ -100,8 +100,12 @@ const handle = async (phone, name, msg, session) => {
   const state = session?.state || 'idle'
   const lo = (text||'').toLowerCase().trim()
   try {
-    // 1. Голос → транскрибируем и рекурсивно диспетчируем
+    // 1. Голос
     if (type === 'voice') {
+      // Confirming: clientOrderHandler.handle() сам транскрибирует и обрабатывает
+      if (state === 'confirming') {
+        return clientOrderHandler.handle(phone, name, msg, session)
+      }
       if (!mediaUrl) {
         await wa.sendText(phone, '🚖 Напишите куда нужно ехать:')
         return
@@ -109,10 +113,6 @@ const handle = async (phone, name, msg, session) => {
       await wa.sendText(phone, '🎤 Распознаю голосовое сообщение...')
       const recognized = await transcribeVoice(mediaUrl, phone)
       if (recognized) {
-        // Голос при подтверждении заказа — специальная нормализация «да/нет»
-        if (state === 'confirming') {
-          return clientOrderHandler.handleVoiceConfirming(phone, recognized, session)
-        }
         let voiceText = recognized
         // Если ждём оценку — конвертируем числа словами в цифры
         if (state === 'waiting_rating') {
