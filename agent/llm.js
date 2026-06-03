@@ -88,16 +88,16 @@ ${memoryBlock || '(пусто)'}
 - Когда даёшь задачу Claude — она должна быть самодостаточной (всё что нужно внутри)`;
 
 const think = async (userMessage, memory, history) => {
-  // Берём только топ-12 самых важных записей чтобы не превысить TPM лимит
+  // Топ-8 записей памяти, 120 символов каждая
   const topMemory = memory
     .sort((a, b) => (b.importance || 5) - (a.importance || 5))
-    .slice(0, 12);
+    .slice(0, 8);
   const memoryBlock = topMemory.length
-    ? topMemory.map(m => `${m.key}: ${m.content.slice(0, 150)}`).join('\n')
+    ? topMemory.map(m => `${m.key}: ${m.content.slice(0, 120)}`).join('\n')
     : '';
 
-  // История: только последние 8 сообщений
-  const recentHistory = history.slice(-8);
+  // История: только последние 6 сообщений
+  const recentHistory = history.slice(-6);
 
   const messages = [
     { role: 'system', content: SYSTEM_PROMPT(memoryBlock) },
@@ -106,7 +106,7 @@ const think = async (userMessage, memory, history) => {
   ];
 
   const first = await getGroq().chat.completions.create({
-    model: 'qwen/qwen3-32b',
+    model: 'llama-3.3-70b-versatile',
     messages,
     tools: TOOLS,
     tool_choice: 'auto',
@@ -132,7 +132,7 @@ const think = async (userMessage, memory, history) => {
 
   if (toolCalls.length) {
     const second = await getGroq().chat.completions.create({
-      model: 'qwen/qwen3-32b',
+      model: 'llama-3.3-70b-versatile',
       messages: [
         ...messages,
         assistantMsg,

@@ -110,8 +110,12 @@ bot.on('message:text', async ctx => {
     const sendSafe = async (txt) => {
       try {
         await ctx.reply(txt, { parse_mode: 'Markdown' });
-      } catch {
-        await ctx.reply(txt.replace(/[*_`\[\]]/g, ''));
+      } catch (e1) {
+        try {
+          await ctx.reply(txt.replace(/[*_`\[\]()~>#+=|{}.!-]/g, ''));
+        } catch (e2) {
+          await ctx.reply('⚠️ Не удалось отправить ответ: ' + e2.message.slice(0, 100));
+        }
       }
     };
 
