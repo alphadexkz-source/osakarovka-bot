@@ -163,6 +163,19 @@ const route = async (body) => {
       await q.updateDriverActivity(phone).catch(() => {});
       const driver = await q.getDriver(phone);
       const driverStatus = driver?.status || 'offline';
+      const inReg = session?.state?.startsWith('reg_');
+
+      // Заблокированный водитель — блокируем всегда
+      if (driver?.status === 'blocked') {
+        await wa.sendText(phone, '🚫 Ваш аккаунт заблокирован. Обратитесь к администратору.');
+        return;
+      }
+
+      // Неполная регистрация — перенаправляем если не в процессе reg_
+      if (!inReg && (!driver || !driver.full_name || !driver.car_plate)) {
+        await wa.sendText(phone, '⚠️ Завершите регистрацию водителя.\nОтправьте код водителя снова или обратитесь к администратору.');
+        return;
+      }
 
       if (driver && shouldRouteAsDriver(msg, session, driverStatus, lo)) {
         return driverHandler.handle(phone, msg, session);
