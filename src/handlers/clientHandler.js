@@ -102,10 +102,17 @@ const handle = async (phone, name, msg, session) => {
   try {
     // 1. Голос
     if (type === 'voice') {
-      // Confirming: clientOrderHandler.handle() сам транскрибирует и обрабатывает
+
+      // ── Приоритетные состояния — маршрутизируем без транскрипции ──
+      // confirming: clientOrderHandler сам вызывает recognizeVoice внутри
       if (state === 'confirming') {
         return clientOrderHandler.handle(phone, name, msg, session)
       }
+      // reg_*/edit_*: не должны попадать сюда (router.js → driverHandler),
+      // но на случай ошибки роутинга — молча игнорируем голос
+      if (state.startsWith('reg_') || state.startsWith('edit_')) return
+
+      // ── Общая обработка голоса ────────────────────────────────────
       if (!mediaUrl) {
         await wa.sendText(phone, '🚖 Напишите куда нужно ехать:')
         return
