@@ -166,8 +166,7 @@ const handle = async (phone, name, msg, session) => {
     if (!text || text.length < 2) { await wa.sendText(phone, '🚖 Напишите куда нужно ехать:'); return }
 
     // 7. Инфо-команды
-    const loWords = lo.split(/[\s,.:;!?()\-]+/)
-    if (await clientInfoHandler.handleInfo(phone, lo, text, loWords)) return
+    if (await clientInfoHandler.handle(phone, msg)) return
 
     // 8. Профильные команды (рефералы, история, адреса)
     const user = await q.getUser(phone)
