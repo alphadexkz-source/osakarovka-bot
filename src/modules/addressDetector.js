@@ -56,6 +56,7 @@ const TOOLS = [{
         },
       },
       required: ['is_address'],
+      additionalProperties: false,
     },
   },
 }];
