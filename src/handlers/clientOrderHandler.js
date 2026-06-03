@@ -10,12 +10,27 @@ const { recognizeVoice } = require('../modules/voiceRecognizer')
 const { detectVoiceIntent } = require('../modules/voiceCommands')
 const log = require('../logger')
 
-// Добавляет подсказку о старом названии улицы если адрес содержит переименованную улицу
+// Добавляет подсказку о переименовании улицы (в обе стороны)
 const addStreetAlias = (addr) => {
   const lo = addr.toLowerCase()
-  for (const [newName, oldName] of Object.entries(config.STREET_ALIASES)) {
-    if (lo.includes(newName)) return addr + '\n📋 ' + oldName
+
+  // Новое название → показываем старое
+  for (const [newName, oldLabel] of Object.entries(config.STREET_ALIASES)) {
+    if (lo.includes(newName)) return addr + '\n📋 ' + oldLabel
   }
+
+  // Старое название → показываем новое
+  for (const [newName, oldLabel] of Object.entries(config.STREET_ALIASES)) {
+    const oldStreet = oldLabel.replace('бывш. ', '').toLowerCase()
+    const parts = oldStreet.split(' / ').map(p => p.split(' (')[0].trim())
+    for (const part of parts) {
+      if (part.length >= 4 && lo.includes(part)) {
+        const cap = newName.charAt(0).toUpperCase() + newName.slice(1)
+        return addr + '\n📋 Новое название: ' + cap
+      }
+    }
+  }
+
   return addr
 }
 
