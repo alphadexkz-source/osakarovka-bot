@@ -224,12 +224,21 @@ const handleVoice = async (phone, mediaUrl, session) => {
   const result = detectVoiceIntent(corrected)
   log.msg(phone, 'driver', state, 'voice', voiceText + ' → ' + result.intent)
 
-  // ─── В поездке ────────────────────────────────────────────────
-  const order = await q.getActiveOrderByDriver(phone)
-  if (order) {
-    if (result.intent === 'arrived')    { await orderEngine.arrived(order.id, phone); return }
-    if (result.intent === 'complete')   { await orderEngine.complete(order.id, phone); return }
-    if (result.intent === 'false_call') { await orderEngine.falseCall(order.id, phone); return }
+  // ─── В поездке — заказ запрашивается лениво, только когда нужен ──
+  if (result.intent === 'arrived') {
+    const order = await q.getActiveOrderByDriver(phone)
+    if (order) return orderEngine.arrived(order.id, phone)
+    return
+  }
+  if (result.intent === 'complete') {
+    const order = await q.getActiveOrderByDriver(phone)
+    if (order) return orderEngine.complete(order.id, phone)
+    return
+  }
+  if (result.intent === 'false_call') {
+    const order = await q.getActiveOrderByDriver(phone)
+    if (order) return orderEngine.falseCall(order.id, phone)
+    return
   }
 
   // ─── Принял / пропустил ───────────────────────────────────────
