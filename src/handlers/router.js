@@ -171,12 +171,13 @@ const route = async (body) => {
         driver.status !== 'blocked';
 
       if (!inReg && !isFullyRegistered) {
-        console.log(`[Router] Неполный водитель ${phone} — перенаправляем как клиента`);
+        console.log(`[Router] Неполный водитель ${phone} → принудительно клиентский режим`);
         await wa.sendText(phone,
           '⚠️ Вы не завершили регистрацию водителя.\n\n' +
           'Чтобы работать водителем — завершите регистрацию.\n' +
           'Если хотите заказать такси — просто напишите адрес.'
         );
+        await q.updateUser(phone, { role: 'client' }).catch(() => {});
         return clientHandler.handle(phone, name, msg, session);
       }
 
