@@ -292,4 +292,36 @@ const handleVoice = async (phone, mediaUrl, session) => {
   )
 }
 
-module.exports = { handleVoice, handleCommand, handleCommandButtons, clearBreakTimer, breakTimers, KW, match }
+// Единая точка входа для голосового сообщения водителя.
+// Routing: reg_X/edit_X → registration handler, остальное → handleVoice.
+// Вызывается из driverHandler.js после clientOrderHandler routing.
+const handle = async (phone, msg, session) => {
+  const { mediaUrl } = msg
+  const state = session?.state || 'idle'
+
+  if (!mediaUrl) {
+    await wa.sendText(phone, '🎙 Голосовое не получено. Напишите команду.')
+    return
+  }
+
+  // reg_photo/edit_photo: голос не поддерживается, нужно фото
+  if (state === 'reg_photo' || state === 'edit_photo') {
+    await wa.sendText(phone, '📸 Для этого шага отправьте ФОТО автомобиля.')
+    return
+  }
+
+  // reg_*/edit_*: транскрибируем и передаём как текст в registration handler
+  if (state.startsWith('reg_') || state.startsWith('edit_')) {
+    const driverReg = require('./driverRegistrationHandler')
+    const voiceText = await recognizeVoice(mediaUrl, phone)
+    if (!voiceText) return
+    const textMsg = { ...msg, text: voiceText, type: 'text', mediaUrl: null }
+    if (state.startsWith('reg_')) return driverReg.handleRegistration(phone, textMsg, state)
+    return driverReg.handleEdit(phone, textMsg, state)
+  }
+
+  // Основные команды — всё остальное
+  return handleVoice(phone, mediaUrl, session)
+}
+
+module.exports = { handle, handleVoice, handleCommand, handleCommandButtons, clearBreakTimer, breakTimers, KW, match }

@@ -5,13 +5,14 @@ const orderEngine = require('../modules/orderEngine')
 const chatRelay = require('../modules/chatRelay')
 const tariff = require('../modules/tariffEngine')
 const { transcribe: transcribeVoice } = require('../modules/voiceCommandHandler')
+const clientOrderHandler = require('./clientOrderHandler')
 const driverRegistrationHandler = require('./driverRegistrationHandler')
 const driverOrderHandler = require('./driverOrderHandler')
 const driverCommandHandler = require('./driverCommandHandler')
 
 const log = require('../logger')
 const { KW: ORDER_KW, match } = driverOrderHandler
-const { KW: CMD_KW, clearBreakTimer, handleVoice } = driverCommandHandler
+const { KW: CMD_KW, clearBreakTimer } = driverCommandHandler
 
 const handleCancelReason = async (phone, text, ctx) => {
   const order = await q.getActiveOrderByDriver(phone)
@@ -58,31 +59,12 @@ const handle = async (phone, msg, session) => {
   try {
     // 1. ГОЛОСОВОЕ
     if (type === 'voice') {
-      if (!mediaUrl) { await wa.sendText(phone, '🎙 Голосовое не получено. Напишите команду.'); return }
-
-      // ── Приоритетные состояния — транскрибируем и передаём как текст ──
-      if (state === 'driver_as_client') {
-        const voiceText = await transcribeVoice(mediaUrl, phone)
-        if (!voiceText) { await wa.sendText(phone, '🎤 Не удалось распознать. Напишите команду.'); return }
-        return handleAsClient(phone, { ...msg, text: voiceText, type: 'text' }, session)
+      // Клиентские состояния — clientOrderHandler сам разберётся
+      if (state === 'confirming' || state === 'driver_as_client') {
+        return clientOrderHandler.handle(phone, name, msg, session)
       }
-      if (state === 'reg_photo' || state === 'edit_photo') {
-        await wa.sendText(phone, '📸 Для этого шага отправьте ФОТО автомобиля.')
-        return
-      }
-      if (state.startsWith('reg_')) {
-        const voiceText = await transcribeVoice(mediaUrl, phone)
-        if (voiceText) return driverRegistrationHandler.handleRegistration(phone, { ...msg, text: voiceText, type: 'text' }, state)
-        return
-      }
-      if (state.startsWith('edit_')) {
-        const voiceText = await transcribeVoice(mediaUrl, phone)
-        if (voiceText) return driverRegistrationHandler.handleEdit(phone, { ...msg, text: voiceText, type: 'text' }, state)
-        return
-      }
-
-      // ── Основные команды: всё в driverCommandHandler.handleVoice ──
-      return handleVoice(phone, mediaUrl, session)
+      // Все остальные состояния и команды водителя
+      return driverCommandHandler.handle(phone, msg, session)
     }
 
     // 2. Состояния регистрации/редактирования
