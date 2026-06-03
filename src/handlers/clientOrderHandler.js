@@ -9,6 +9,7 @@ const { parseScheduleTime } = require('../modules/smartReply')
 const { recognizeVoice } = require('../modules/voiceRecognizer')
 const { detectVoiceIntent } = require('../modules/voiceCommands')
 const log = require('../logger')
+const { clientTest } = require('../modules/testLogger')
 
 // Добавляет подсказку о переименовании улицы (в обе стороны)
 const addStreetAlias = (addr) => {
@@ -87,6 +88,7 @@ const handle = async (phone, name, msg, session) => {
     const ctx = session?.ctx || {}
 
     if (result.intent === 'confirm') {
+      clientTest(phone, 'Подтверждение голосом', voiceText)
       if (!ctx.destination) {
         await wa.sendText(phone, '⚠️ Ошибка сессии. Начните заказ заново.')
         await q.clearSession(phone)
@@ -135,6 +137,7 @@ const handleNewOrder = async (phone, name, text, user) => {
     resolved.name.toLowerCase().includes(text.trim().toLowerCase())
   )
   const displayAddress = enriched ? resolved.name : text.trim()
+  clientTest(phone, 'Новый заказ', `Адрес: ${displayAddress}`)
   const pi = await tariff.getPrice(text)
   const nightNote = pi.isNight ? '\n🌙 *Ночной тариф*' : ''
   const freeNote = user && (user.trip_count+1) % config.FREE_TRIP_EVERY === 0 ? '\n\n🎁 *Эта поездка будет БЕСПЛАТНОЙ!*' : ''
