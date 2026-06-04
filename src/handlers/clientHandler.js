@@ -191,7 +191,12 @@ const handle = async (phone, name, msg, session) => {
     const smartReply = getSmartReply(text)
     if (smartReply) { await wa.sendText(phone, smartReply); return }
 
-    // 11. Определение адреса → новый заказ или Groq
+    // 11. Межгород (до isAddress — города не адреса, Groq их не распознаёт)
+    if (clientOrderHandler.isIntercity(text)) {
+      return clientOrderHandler.handleNewOrder(phone, name, text, user)
+    }
+
+    // 12. Определение адреса → новый заказ или Groq
     const addr = await isAddress(text)
     if (!addr) {
       const today = new Date().toISOString().split('T')[0]

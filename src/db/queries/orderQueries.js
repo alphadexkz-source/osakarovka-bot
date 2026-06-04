@@ -196,6 +196,15 @@ const getUnwarnedArrivals = async (warningAfterMs) => {
   return r.rows
 }
 
+const saveRating = async (orderId, clientId, driverId, score) => {
+  await db.query(
+    `INSERT INTO ratings(order_id, client_id, driver_id, score)
+     VALUES($1,$2,$3,$4)
+     ON CONFLICT(order_id) DO UPDATE SET score=EXCLUDED.score`,
+    [orderId, clientId, driverId, score]
+  )
+}
+
 module.exports = {
   createOrder,
   getOrder,
@@ -214,4 +223,5 @@ module.exports = {
   getExpiredDispatches,
   setArriveWarned,
   getUnwarnedArrivals,
+  saveRating,
 }
