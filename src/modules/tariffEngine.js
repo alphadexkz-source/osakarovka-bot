@@ -8,13 +8,25 @@ const isNight = () => {
   return s < e ? h >= s && h < e : h >= s || h < e;
 };
 
-// Нормализация текста для сравнения
-const norm = (t) =>
-  t.toLowerCase()
-   .replace(/ё/g, 'е')
-   .replace(/[^а-яa-z0-9\s]/g, ' ')
-   .replace(/\s+/g, ' ')
-   .trim();
+// Нормализация текста для сравнения (русский + казахский алфавит)
+const norm = (t) => {
+  if (!t) return '';
+  return String(t)
+    .toLowerCase()
+    .replace(/ё/g, 'е')
+    .replace(/ә/g, 'а')
+    .replace(/ғ/g, 'г')
+    .replace(/қ/g, 'к')
+    .replace(/ң/g, 'н')
+    .replace(/ө/g, 'о')
+    .replace(/ұ/g, 'у')
+    .replace(/ү/g, 'у')
+    .replace(/һ/g, 'х')
+    .replace(/і/g, 'и')
+    .replace(/[^а-яa-z0-9\s]/gi, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+};
 
 // Найти тариф по ключевым словам в тексте заказа
 const findTariff = async (destination) => {
