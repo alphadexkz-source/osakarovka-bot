@@ -175,9 +175,7 @@ const route = async (body) => {
         console.log(`[Router] Неполный водитель ${phone} → принудительно клиентский режим`);
         suspicious(phone, 'DRIVER', 'Попытка принять заказ без полной регистрации');
         await wa.sendText(phone,
-          '⚠️ Вы не завершили регистрацию водителя.\n\n' +
-          'Чтобы работать водителем — завершите регистрацию.\n' +
-          'Если хотите заказать такси — просто напишите адрес.'
+          '⚠️ Завершите регистрацию водителя или обратитесь к администратору.'
         );
         await q.updateUser(phone, { role: 'client' }).catch(() => {});
         return clientHandler.handle(phone, name, msg, session);
