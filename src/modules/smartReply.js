@@ -8,7 +8,23 @@ const getGroq = () => {
   return groq;
 };
 
-const getGroqReply = async (text) => {
+// Per-phone Groq rate limit: не более 5 вызовов в минуту
+const _groqCounts = new Map();
+const isGroqRateLimited = (phone) => {
+  if (!phone) return false;
+  const now = Date.now();
+  const rec = _groqCounts.get(phone);
+  if (!rec || now > rec.resetAt) {
+    _groqCounts.set(phone, { count: 1, resetAt: now + 60_000 });
+    return false;
+  }
+  if (rec.count >= 5) return true;
+  rec.count++;
+  return false;
+};
+
+const getGroqReply = async (text, phone) => {
+  if (isGroqRateLimited(phone)) return null;
   const lo = (text||'').toLowerCase().trim();
   if (!lo || lo.length < 2) return null;
 
@@ -40,7 +56,8 @@ ${weatherStr ? '⚠️ Погода: ' + weatherStr : ''}
   }
 };
 
-const getGroqDriverReply = async (text, driverName, stats, extra) => {
+const getGroqDriverReply = async (text, driverName, stats, extra, phone) => {
+  if (isGroqRateLimited(phone)) return null;
   const lo = (text||'').toLowerCase().trim();
   if (!lo || lo.length < 2) return null;
   try {

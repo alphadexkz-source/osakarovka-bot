@@ -206,7 +206,7 @@ const handle = async (phone, name, msg, session) => {
         const dayGreet = await dailyGreeting(name, text, user?.trip_count||0).catch(() => null)
         if (dayGreet) { await wa.sendText(phone, dayGreet); return }
       }
-      const groqReply = await getGroqReply(text).catch(() => null)
+      const groqReply = await getGroqReply(text, phone).catch(() => null)
       await wa.sendText(phone, groqReply || 'Напишите куда нужно ехать:')
       return
     }

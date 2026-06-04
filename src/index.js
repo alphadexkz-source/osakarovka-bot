@@ -106,19 +106,24 @@ app.post('/webhook', async (req, res) => {
   }
 });
 
-// ─── Health check ─────────────────────────────────────────────
+// ─── Health check (кеш 30 сек — защита от DB exhaustion) ──────
+let _healthCache = null;
 app.get('/', async (req, res) => {
   try {
-    const stats = await db.query(
-      `SELECT
-         (SELECT COUNT(*) FROM users WHERE role='client') AS clients,
-         (SELECT COUNT(*) FROM users WHERE role='driver') AS drivers,
-         (SELECT COUNT(*) FROM drivers WHERE status='online') AS online,
-         (SELECT COUNT(*) FROM drivers WHERE status='busy') AS busy,
-         (SELECT COUNT(*) FROM orders WHERE created_at::date=CURRENT_DATE AND status='completed') AS today_done,
-         (SELECT COUNT(*) FROM orders WHERE created_at::date=CURRENT_DATE) AS today_total`
-    );
-    res.json({ service: 'еОсакаровка Сервис', status: 'running', time: new Date().toISOString(), stats: stats.rows[0] });
+    const now = Date.now();
+    if (!_healthCache || now > _healthCache.expiresAt) {
+      const r = await db.query(
+        `SELECT
+           (SELECT COUNT(*) FROM users WHERE role='client') AS clients,
+           (SELECT COUNT(*) FROM users WHERE role='driver') AS drivers,
+           (SELECT COUNT(*) FROM drivers WHERE status='online') AS online,
+           (SELECT COUNT(*) FROM drivers WHERE status='busy') AS busy,
+           (SELECT COUNT(*) FROM orders WHERE created_at::date=CURRENT_DATE AND status='completed') AS today_done,
+           (SELECT COUNT(*) FROM orders WHERE created_at::date=CURRENT_DATE) AS today_total`
+      );
+      _healthCache = { stats: r.rows[0], expiresAt: now + 30_000 };
+    }
+    res.json({ service: 'еОсакаровка Сервис', status: 'running', time: new Date().toISOString(), stats: _healthCache.stats });
   } catch {
     res.json({ service: 'еОсакаровка Сервис', status: 'running' });
   }

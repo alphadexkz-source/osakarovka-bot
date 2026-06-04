@@ -167,7 +167,7 @@ const handleCommand = async (phone, lo, driver, session) => {
       status: driver.status,
       queuePos,
       queueTotal: onlineList.length
-    }
+    }, phone
   ).catch(() => null)
 
   if (groqReply) {
@@ -275,7 +275,7 @@ const handleVoice = async (phone, mediaUrl, session) => {
 
   // ─── Groq fallback ────────────────────────────────────────────
   const driver = await q.getDriver(phone)
-  const groqReply = await getGroqDriverReply(voiceText, driver?.full_name, null, { status: driver?.status })
+  const groqReply = await getGroqDriverReply(voiceText, driver?.full_name, null, { status: driver?.status }, phone)
     .catch(() => null)
   await wa.sendText(phone,
     groqReply || '🎤 Распознано: *"' + voiceText + '"*\n\nКоманды: *принял, прибыл, свободен, ложный, на линию, с линии, статистика*'
