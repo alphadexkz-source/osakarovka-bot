@@ -8,12 +8,17 @@ const isNight = () => {
   return s < e ? h >= s && h < e : h >= s || h < e;
 };
 
-// Нормализация текста для сравнения (русский + казахский алфавит)
-const norm = (t) => {
-  if (!t) return '';
-  return String(t)
+/**
+ * Нормализация текста для поиска тарифов
+ * Поддерживает русский + полный казахский алфавит
+ */
+const norm = (text) => {
+  if (!text) return '';
+
+  return String(text)
     .toLowerCase()
     .replace(/ё/g, 'е')
+    // Казахские буквы
     .replace(/ә/g, 'а')
     .replace(/ғ/g, 'г')
     .replace(/қ/g, 'к')
@@ -23,6 +28,7 @@ const norm = (t) => {
     .replace(/ү/g, 'у')
     .replace(/һ/g, 'х')
     .replace(/і/g, 'и')
+    // Убираем всё кроме букв, цифр и пробелов
     .replace(/[^а-яa-z0-9\s]/gi, ' ')
     .replace(/\s+/g, ' ')
     .trim();
@@ -68,4 +74,4 @@ const formatTariffList = (tariffs) => {
     .join('\n\n');
 };
 
-module.exports = { findTariff, getPrice, isNight, formatTariffList };
+module.exports = { norm, findTariff, getPrice, isNight, formatTariffList };

@@ -59,6 +59,27 @@ const warnInactiveDrivers = async () => {
   }
 };
 
+// ─── Возобновление диспетчеризации после ожидания офлайн-водителей ───────────
+
+const checkWaitingDispatches = async () => {
+  const r = await db.query(
+    `SELECT phone, ctx FROM sessions
+     WHERE phone LIKE 'order_%' AND state = 'searching'
+       AND (ctx->>'resume_at') IS NOT NULL`
+  ).then(r => r.rows).catch(() => [])
+
+  for (const row of r) {
+    const orderId = parseInt(row.phone.replace('order_', ''))
+    const resumeAt = parseInt(row.ctx?.resume_at || 0)
+    if (!resumeAt || Date.now() < resumeAt) continue
+
+    // Сбрасываем resume_at, оставляем offline_notified=true чтобы не слать уведомления повторно
+    await q.setSession('order_' + orderId, 'searching', { offline_notified: true }).catch(() => {})
+    console.log(`[TimerService] Возобновляем диспетчеризацию заказа #${orderId}`)
+    orderEngine.resumeDispatch(orderId).catch(e => console.error('[Timer/resume_dispatch]', e.message))
+  }
+}
+
 // ─── Восстановление зависших диспетчеризаций после рестарта ──────────────────
 
 // Заказы с dispatched_at < NOW() - ACCEPT_TIMEOUT_MS могли потерять таймер при рестарте.
@@ -139,9 +160,10 @@ const start = () => {
 
   console.log('[TimerService] Расписание активно');
 
-  // Каждую минуту — проверка зависших диспетчеризаций + истёкших перерывов
+  // Каждую минуту — проверка зависших диспетчеризаций + ожидающих + истёкших перерывов
   cron.schedule('*/1 * * * *', async () => {
     try { await checkDispatchTimeouts() } catch (e) { console.error('[Timer/dispatch_timeout]', e.message) }
+    try { await checkWaitingDispatches() } catch (e) { console.error('[Timer/waiting_dispatches]', e.message) }
     try { await checkBreakTimers() } catch (e) { console.error('[Timer/break_timers]', e.message) }
   })
 

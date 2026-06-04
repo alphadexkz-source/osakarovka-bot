@@ -103,14 +103,9 @@ const dispatch_queue = async (orderId, tried, circles) => {
         }
         // Даём 2 минуты на выход водителей
         if (offlineWithBalance.length > 0) {
-          await sleep(120000)
-          const freshOrder = await q.getOrder(orderId)
-          if (!freshOrder || freshOrder.status !== 'searching') return
-          const nowOnline = await q.getOnlineDriversQueue()
-          if (nowOnline.length) {
-            await dispatch_queue(orderId, [], 0)
-            return
-          }
+          console.log(`[OrderEngine] Нет онлайн водителей. Откладываем заказ ${orderId} на 2 минуты`)
+          await q.setSession('order_' + orderId, 'searching', { offline_notified: true, resume_at: Date.now() + 120000 })
+          return
         }
       }
       await q.updateOrder(orderId, { status: 'cancelled', cancel_reason: 'no_drivers', cancelled_at: new Date() })
@@ -320,6 +315,12 @@ const falseCall = async (orderId, driverPhone) => {
   return { success: true }
 }
 
+const resumeDispatch = async (orderId) => {
+  const order = await q.getOrder(orderId)
+  if (!order || order.status !== 'searching') return
+  await dispatch_queue(orderId, [], 0)
+}
+
 const safe = (fn) => async (...args) => {
   try { return await fn(...args) }
   catch (err) { console.error('[orderEngine/' + fn.name + ']', err.message); return { error: 'internal', message: err.message } }
@@ -332,4 +333,5 @@ module.exports = {
   complete: safe(complete),
   cancel: safe(cancel),
   falseCall: safe(falseCall),
+  resumeDispatch: safe(resumeDispatch),
 }
