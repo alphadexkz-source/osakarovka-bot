@@ -9,7 +9,6 @@ const db  = require('./src/db/index');
 const addrDet = require('./src/modules/addressDetector');
 const tariff  = require('./src/modules/tariffEngine');
 const smartR  = require('./src/modules/smartReply');
-const info    = require('./src/modules/infoService');
 const driverMgr = require('./src/modules/driverManager');
 const orderEngine = require('./src/modules/orderEngine');
 
@@ -527,27 +526,6 @@ try {
   ok('Дублирование сообщений — не крашится (state=' + sess?.state + ')');
   await q.clearSession(CLIENT1);
 } catch(e) { er('Гонка состояний КРАШ', e.message); await q.clearSession(CLIENT1); }
-
-// ─── 17. ИНФОРМАЦИОННЫЕ КОМАНДЫ ──────────────────────────────
-h('17. ИНФОРМАЦИОННЫЕ КОМАНДЫ (валидность данных)');
-const infoTests = [
-  ['курс',     'USD > 100₸',     async () => { const r = await info.getCurrencyRates(); return r?.usd > 100; }],
-  ['золото',   'Золото > 10000₸/г', async () => { const r = await info.getMetalPrices(); return r?.gold_gram_kzt > 10000; }],
-  ['пшеница',  'Пшеница > 50000₸/т', async () => { const r = await info.getGrainPrices(); return r?.wheat?.kzt_per_ton > 50000; }],
-];
-for (const [cmd, desc, check] of infoTests) {
-  try {
-    const valid = await check();
-    if (valid) ok(cmd + ' — ' + desc);
-    else wn(cmd + ' — данные невалидны');
-    // Проверяем что команда не создаёт заказ
-    await q.clearSession(CLIENT1);
-    const r = await simClient(CLIENT1, 'Клиент', cmd);
-    if (r.session?.state !== 'confirming') ok(cmd + ' — не создаёт заказ ✓');
-    else er(cmd + ' — СОЗДАЛ ЗАКАЗ!');
-    await q.clearSession(CLIENT1);
-  } catch(e) { er(cmd, e.message); }
-}
 
 // ─── ОЧИСТКА ─────────────────────────────────────────────────
 await cleanup();

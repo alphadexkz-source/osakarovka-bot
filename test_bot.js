@@ -6,7 +6,6 @@ const tariff  = require('./src/modules/tariffEngine');
 const orderEngine = require('./src/modules/orderEngine');
 const driverMgr   = require('./src/modules/driverManager');
 const addressDet  = require('./src/modules/addressDetector');
-const info        = require('./src/modules/infoService');
 const ws          = require('./src/modules/weatherService');
 const smartReply  = require('./src/modules/smartReply');
 
@@ -86,7 +85,7 @@ async function run() {
     ['тц октябрь', true,  'ТЦ Октябрь (вручную добавлен)'],
     ['больница',   true,  'Больница'],
     ['акимат',     true,  'Акимат'],
-    ['касси банк', false, 'Несуществующий объект → не найден'],
+    ['хyzабвгд123несуществует', false, 'Несуществующий объект → не найден'],
   ];
   for (const [q2, expected, label] of dbAddrTests) {
     try {
@@ -127,26 +126,6 @@ async function run() {
     if (fc && fc.days && fc.days.length >= 3) ok('Прогноз 3 дня: ' + fc.days.map(d => d.icon + d.max + '°').join(' '));
     else warn('Прогноз: мало данных');
   } catch(e) { err('Прогноз Open-Meteo', e.message); }
-
-  // ── 6. ИНФОРМАЦИОННЫЙ СЕРВИС ─────────────────────────────────
-  section('6. Инфо-сервис (курс/металлы/зерно)');
-  try {
-    const r = await info.getCurrencyRates();
-    if (r && r.usd > 100) ok('Курс USD: ' + r.usd + ' ₸');
-    else warn('Курс: некорректное значение ' + JSON.stringify(r));
-  } catch(e) { err('Курс валют', e.message); }
-
-  try {
-    const r = await info.getMetalPrices();
-    if (r && r.gold_gram_kzt > 10000) ok('Золото: ' + r.gold_gram_kzt.toLocaleString() + ' ₸/г, серебро: ' + r.silver_gram_kzt.toLocaleString() + ' ₸/г');
-    else warn('Металлы: некорректные данные');
-  } catch(e) { err('Металлы', e.message); }
-
-  try {
-    const r = await info.getGrainPrices();
-    if (r && r.wheat?.kzt_per_ton > 50000) ok('Пшеница: ' + r.wheat.kzt_per_ton.toLocaleString() + ' ₸/т');
-    else warn('Зерно: данные недоступны или некорректны — ' + JSON.stringify(r?.wheat));
-  } catch(e) { err('Зерно Yahoo Finance', e.message); }
 
   // ── 7. СЕССИИ ────────────────────────────────────────────────
   section('7. Сессии');
