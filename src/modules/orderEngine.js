@@ -321,6 +321,16 @@ const resumeDispatch = async (orderId) => {
   await dispatch_queue(orderId, [], 0)
 }
 
+// Ручной пропуск водителем — отменяем таймер (без штрафа) и сразу передаём следующему
+const skipOrder = async (orderId, driverPhone) => {
+  clearTimer(acceptTimers, orderId)
+  await q.clearDispatchState(orderId).catch(() => {})
+  await q.setSession(driverPhone, 'idle', {})
+  await q.moveDriverToEndOfQueue(driverPhone)
+  await sleep(config.PAUSE_MS)
+  dispatch_queue(orderId, [driverPhone], 0).catch(e => console.error('[skipOrder]', e.message))
+}
+
 const safe = (fn) => async (...args) => {
   try { return await fn(...args) }
   catch (err) { console.error('[orderEngine/' + fn.name + ']', err.message); return { error: 'internal', message: err.message } }
@@ -334,4 +344,5 @@ module.exports = {
   cancel: safe(cancel),
   falseCall: safe(falseCall),
   resumeDispatch: safe(resumeDispatch),
+  skipOrder: safe(skipOrder),
 }

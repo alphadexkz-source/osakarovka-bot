@@ -1,6 +1,6 @@
-const wa = require('../whatsapp/greenApi')
-const q = require('../db/queries')
-const orderEngine = require('../modules/orderEngine')
+const wa           = require('../whatsapp/greenApi')
+const q            = require('../db/queries')
+const orderEngine  = require('../modules/orderEngine')
 const { driverTest } = require('../modules/testLogger')
 
 const KW = {
@@ -33,8 +33,10 @@ const handleAcceptSkip = async (phone, lo) => {
     return true
   }
   if (match(lo, KW.SKIP)) {
-    await q.moveDriverToEndOfQueue(phone)
+    const pending = await q.getPendingOrderForDriver(phone)
     await wa.sendText(phone, 'Пропущено.')
+    if (pending) orderEngine.skipOrder(pending.id, phone).catch(() => {})
+    else await q.moveDriverToEndOfQueue(phone)
     return true
   }
   return false
@@ -49,8 +51,9 @@ const handleOrderButtons = async (phone, buttonId) => {
     return true
   }
   if (buttonId.startsWith('skip_')) {
-    await q.moveDriverToEndOfQueue(phone)
+    const orderId = parseInt(buttonId.replace('skip_', ''))
     await wa.sendText(phone, 'Пропущено.')
+    orderEngine.skipOrder(orderId, phone).catch(() => {})
     return true
   }
   if (buttonId.startsWith('arrived_')) {

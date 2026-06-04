@@ -192,6 +192,17 @@ const handleOrderState = async (phone, name, lo, text, msg, session) => {
   }
 
   if (state === 'in_trip') {
+    if (isCancel(lo)) {
+      const order = await q.getActiveOrderByClient(phone)
+      if (order) {
+        await orderEngine.cancel(order.id, 'Отменен клиентом')
+        await wa.sendText(phone, '❌ *Заказ отменён.*\n\nНапишите куда ехать — найдём водителя! 🚖')
+      } else {
+        await q.clearSession(phone)
+        await wa.sendText(phone, '❌ Нет активного заказа.\n\n🚖 Напишите куда ехать.')
+      }
+      return true
+    }
     await wa.sendButtons(phone, '🚗 Вы в поездке!\n\nЕсли нужно — напишите водителю:', [{ id:'chat_driver', text:'💬 Написать водителю' }])
     return true
   }
