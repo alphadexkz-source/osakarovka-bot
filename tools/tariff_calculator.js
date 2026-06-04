@@ -174,23 +174,60 @@ const sleep = ms => new Promise(r => setTimeout(r, ms))
 
 ;(async () => {
   console.log('\n🗺️  ТАРИФЫ МЕЖГОРОД — Осакаровский район')
-  console.log(`   Формула: max(${MIN}, мин × ${RATE} тг) → округл. до ${ROUND}\n`)
-  const hdr = p('Населённый пункт',32) + pl('км',6) + pl('мин',5) + pl('Тариф тг',11) + '  Тип'
-  const sep = '─'.repeat(68)
+  console.log(`   Формула (посёлки без фикса): max(${MIN}, мин × ${RATE} тг) → округл. до ${ROUND}\n`)
+
+  const sep = '─'.repeat(62)
+  const hdr = p('Населённый пункт',30) + pl('км',6) + pl('мин',5) + pl('Тариф тг',10)
+
+  // Собираем результаты по группам
+  const villages = []
+  const cities   = []
+  let group = null
 
   for (const d of DESTS) {
-    if (d.s) { console.log(`\n${d.s}`); console.log(sep); console.log(hdr); console.log(sep); continue }
+    if (d.s) {
+      group = d.s.includes('ГОРОДА') ? 'city' : 'village'
+      continue
+    }
     await sleep(SLEEP)
-    const { km, min, src } = await fetchRoute(d)
+    const { km, min } = await fetchRoute(d)
     const pr = d.fix ?? calcPrice(min)
-    const type = d.fix ? 'фикс' : `формула(${src})`
+    if (group === 'city') cities.push({ ...d, km, min, pr })
+    else                  villages.push({ ...d, km, min, pr })
+  }
+
+  // Сортируем посёлки по цене
+  villages.sort((a, b) => (a.pr ?? 0) - (b.pr ?? 0))
+
+  // ── ПОСЁЛКИ ──
+  console.log('══ ПОСЁЛКИ ══')
+  console.log(sep)
+  console.log(hdr)
+  console.log(sep)
+  for (const d of villages) {
     console.log(
-      p(d.name, 32) +
-      pl(km  ?? '—', 5) + ' ' +
-      pl(min ?? '—', 4) + ' ' +
-      pl(pr  ? pr.toLocaleString() : '—', 10) + '  ' + type
+      p(d.name, 30) +
+      pl(d.km  ?? '—', 5) + ' ' +
+      pl(d.min ?? '—', 4) + ' ' +
+      pl(d.pr  ? d.pr.toLocaleString() : '—', 9)
     )
   }
+
+  // ── ГОРОДА ──
+  console.log('\n══ ГОРОДА ══')
+  console.log(sep)
+  console.log(hdr)
+  console.log(sep)
+  for (const d of cities) {
+    console.log(
+      p(d.name, 30) +
+      pl(d.km  ?? '—', 5) + ' ' +
+      pl(d.min ?? '—', 4) + ' ' +
+      pl(d.pr  ? d.pr.toLocaleString() : '—', 9)
+    )
+  }
+
   console.log('\n' + sep)
-  console.log(`Формула: ${RATE} тг/мин | Мин: ${MIN} тг | Округл.: ${ROUND}\n`)
+  console.log(`Посёлков: ${villages.length} | Городов: ${cities.length}`)
+  console.log(`Формула: ${RATE} тг/мин | Мин: ${MIN} тг | Источник: 2GIS такси\n`)
 })().catch(console.error)
