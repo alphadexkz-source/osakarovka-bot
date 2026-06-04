@@ -73,70 +73,76 @@ const create = async (clientPhone, destination, priceInfo) => {
   return order
 }
 
-const dispatch_queue = async (orderId, tried, circles) => {
-  const order = await q.getOrder(orderId)
-  if (!order || order.status !== 'searching') return
-  const driver = await driverMgr.getNextDriver(tried)
+const dispatch_queue = async (orderId, triedInit, circlesInit) => {
+  let tried   = triedInit;
+  let circles = circlesInit;
 
-  // Пропускаем водителя с незавершённой регистрацией
-  if (driver && (!driver.full_name || !driver.car_plate)) {
-    console.log(`[OrderEngine] Пропускаем незавершившего регистрацию: ${driver.phone}`)
-    await q.moveDriverToEndOfQueue(driver.phone)
-    return dispatch_queue(orderId, [...tried, driver.phone], circles)
-  }
+  while (true) {
+    const order = await q.getOrder(orderId)
+    if (!order || order.status !== 'searching') return
 
-  if (!driver) {
-    const allOnline = await q.getOnlineDriversQueue()
-    if (!allOnline.length || circles >= config.MAX_CIRCLES) {
-      const orderSession = await q.getSession('order_' + orderId).catch(() => null)
-      const alreadyNotified = orderSession?.ctx?.offline_notified
-      if (!allOnline.length && circles === 0 && !alreadyNotified) {
-        await q.setSession('order_' + orderId, 'searching', { offline_notified: true }).catch(() => {})
-        const allDrivers = await q.getAllDrivers().catch(() => [])
-        const offlineWithBalance = allDrivers.filter(d => d.status === 'offline' && d.order_balance > 0)
-        for (const d of offlineWithBalance) {
-          await wa.sendText(d.phone,
-            '🚖 *Есть заказ!*\n\n📍 ' + order.destination + '\n💰 ' + order.price + ' тг\n\n' +
-            'Выйдите на линию — напишите *"на линию"*!'
-          ).catch(() => {})
-          await sleep(300)
-        }
-        // Даём 2 минуты на выход водителей
-        if (offlineWithBalance.length > 0) {
-          console.log(`[OrderEngine] Нет онлайн водителей. Откладываем заказ ${orderId} на 2 минуты`)
-          await q.setSession('order_' + orderId, 'searching', { offline_notified: true, resume_at: Date.now() + 120000 })
-          return
-        }
-      }
-      await q.updateOrder(orderId, { status: 'cancelled', cancel_reason: 'no_drivers', cancelled_at: new Date() })
-      await notify.clientNoDrivers(order.client_phone)
-      await q.clearSession(order.client_phone)
-      return
+    // Внутренний цикл: пропускаем водителей с незавершённой регистрацией
+    let driver = await driverMgr.getNextDriver(tried)
+    while (driver && (!driver.full_name || !driver.car_plate)) {
+      console.log(`[OrderEngine] Пропускаем незавершившего регистрацию: ${driver.phone}`)
+      await q.moveDriverToEndOfQueue(driver.phone)
+      tried = [...tried, driver.phone]
+      driver = await driverMgr.getNextDriver(tried)
     }
-    await sleep(config.PAUSE_MS)
-    await dispatch_queue(orderId, [], circles + 1)
+
+    if (!driver) {
+      const allOnline = await q.getOnlineDriversQueue()
+      if (!allOnline.length || circles >= config.MAX_CIRCLES) {
+        const orderSession = await q.getSession('order_' + orderId).catch(() => null)
+        const alreadyNotified = orderSession?.ctx?.offline_notified
+        if (!allOnline.length && circles === 0 && !alreadyNotified) {
+          await q.setSession('order_' + orderId, 'searching', { offline_notified: true }).catch(() => {})
+          const allDrivers = await q.getAllDrivers().catch(() => [])
+          const offlineWithBalance = allDrivers.filter(d => d.status === 'offline' && d.order_balance > 0)
+          for (const d of offlineWithBalance) {
+            await wa.sendText(d.phone,
+              '🚖 *Есть заказ!*\n\n📍 ' + order.destination + '\n💰 ' + order.price + ' тг\n\n' +
+              'Выйдите на линию — напишите *"на линию"*!'
+            ).catch(() => {})
+            await sleep(300)
+          }
+          if (offlineWithBalance.length > 0) {
+            console.log(`[OrderEngine] Нет онлайн водителей. Откладываем заказ ${orderId} на 2 минуты`)
+            await q.setSession('order_' + orderId, 'searching', { offline_notified: true, resume_at: Date.now() + 120000 })
+            return
+          }
+        }
+        await q.updateOrder(orderId, { status: 'cancelled', cancel_reason: 'no_drivers', cancelled_at: new Date() })
+        await notify.clientNoDrivers(order.client_phone)
+        await q.clearSession(order.client_phone)
+        return
+      }
+      // Новый круг
+      await sleep(config.PAUSE_MS)
+      tried = []
+      circles++
+      continue
+    }
+
+    // Найден подходящий водитель — отправляем заказ и ставим таймер
+    await notify.driverNewOrder(driver.phone, order)
+    await q.setSession(driver.phone, 'idle', { pending_order_id: order.id })
+    await q.setDispatchState(orderId, driver.phone).catch(e => console.error('[orderEngine/setDispatchState]', e.message))
+
+    const timer = setTimeout(async () => {
+      try {
+        acceptTimers.delete(orderId)
+        await q.clearDispatchState(orderId).catch(() => {})
+        await penalizeSkip(driver.phone)
+        await q.moveDriverToEndOfQueue(driver.phone)
+        await sleep(config.PAUSE_MS)
+        await dispatch_queue(orderId, [...tried, driver.phone], circles)
+      } catch (e) { console.error('[orderEngine/accept_timer]', e.message) }
+    }, config.ACCEPT_TIMEOUT_MS || 60000)
+
+    acceptTimers.set(orderId, { timer, driverPhone: driver.phone })
     return
   }
-
-  await notify.driverNewOrder(driver.phone, order)
-  await q.setSession(driver.phone, 'idle', { pending_order_id: order.id })
-
-  // Персистируем dispatch state в БД для восстановления после рестарта
-  await q.setDispatchState(orderId, driver.phone).catch(e => console.error('[orderEngine/setDispatchState]', e.message))
-
-  // Таймер 60 секунд — не принял → рейтинг падает → следующий
-  const timer = setTimeout(async () => {
-    try {
-      acceptTimers.delete(orderId)
-      await q.clearDispatchState(orderId).catch(() => {})
-      await penalizeSkip(driver.phone)
-      await q.moveDriverToEndOfQueue(driver.phone)
-      await sleep(config.PAUSE_MS)
-      await dispatch_queue(orderId, [...tried, driver.phone], circles)
-    } catch (e) { console.error('[orderEngine/accept_timer]', e.message) }
-  }, config.ACCEPT_TIMEOUT_MS || 60000)
-
-  acceptTimers.set(orderId, { timer, driverPhone: driver.phone })
 }
 
 const dispatch_first = async (order) => {
