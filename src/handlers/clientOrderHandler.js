@@ -197,22 +197,10 @@ const handleOrderState = async (phone, name, lo, text, msg, session) => {
     if (isCancel(lo)) { await q.clearSession(phone); await wa.sendText(phone, '❌ Отменено. Напишите куда ехать.'); return true }
     if (!text || text.length < 2) { await wa.sendText(phone, '📍 Введите адрес откуда вас забрать:'); return true }
     const ctx = session?.ctx || {}
-    await q.setSession(phone, 'intercity_time', { ...ctx, pickup: text.trim() })
-    await wa.sendText(phone, '📍 Откуда: *' + text.trim() + '*\n\n🕐 На какое время нужна машина?\n\nНапишите:\n• *сейчас*\n• *сегодня в 15:00*\n• *завтра в 8:00*')
-    return true
-  }
-
-  if (state === 'intercity_time') {
-    if (isCancel(lo)) { await q.clearSession(phone); await wa.sendText(phone, '❌ Отменено. Напишите куда ехать.'); return true }
-    if (!text || text.length < 2) { await wa.sendText(phone, '🕐 Напишите время: *сейчас* или *завтра в 8:00*'); return true }
-    const ctx = session?.ctx || {}
-    const parsedTime = await parseScheduleTime(text).catch(() => text)
-    const isNow = parsedTime === 'сейчас'
-    const timeStr = isNow ? 'Сейчас' : parsedTime
     const pi = await tariff.getPrice(ctx.destination || '')
-    await q.setSession(phone, 'intercity_confirm', { ...ctx, timeStr, isNow, price: pi.price })
+    await q.setSession(phone, 'intercity_confirm', { ...ctx, pickup: text.trim(), price: pi.price })
     await wa.sendButtons(phone,
-      '🚗 *Межгородской заказ*\n\n📍 Откуда: *' + ctx.pickup + '*\n🏁 Куда: *' + ctx.destination + '*\n🕐 Время: *' + timeStr + '*\n💰 Цена: *' + pi.price + ' тг*\n\nВсё верно?',
+      '🚗 *Межгородской заказ*\n\n📍 Откуда: *' + text.trim() + '*\n🏁 Куда: *' + ctx.destination + '*\n💰 Цена: *' + pi.price + ' тг*\n\nВсё верно?',
       [{ id:'confirm_intercity', text:'✅ Подтвердить' }, { id:'cancel_new', text:'❌ Отмена' }]
     )
     return true
