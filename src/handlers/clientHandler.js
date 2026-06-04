@@ -8,6 +8,7 @@ const { dailyGreeting } = require('../modules/greetingService')
 const driverMgr = require('../modules/driverManager')
 const orderEngine = require('../modules/orderEngine')
 const log = require('../logger')
+const { suspicious } = require('../modules/testLogger')
 const clientOrderHandler = require('./clientOrderHandler')
 const clientInfoHandler = require('./clientInfoHandler')
 const clientProfileHandler = require('./clientProfileHandler')
@@ -179,6 +180,7 @@ const handle = async (phone, name, msg, session) => {
         await orderEngine.cancel(activeOrder.id, 'Отменен клиентом')
         await wa.sendText(phone, '❌ *Заказ отменён.*\n\nНапишите куда ехать — найдём водителя! 🚖')
       } else {
+        suspicious(phone, 'CLIENT', 'Неожиданный ответ после отмены')
         await q.clearSession(phone)
         await wa.sendText(phone, '❌ Нет активного заказа.\n\n🚖 Напишите куда нужно ехать.')
       }

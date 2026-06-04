@@ -6,6 +6,7 @@ const adminHandler = require('./adminHandler');
 const config = require('../config');
 const { newClientGreeting } = require('../modules/greetingService');
 const log = require('../logger');
+const { suspicious } = require('../modules/testLogger');
 
 // 'на линии' убрано — встречается в вопросах («сколько машин на линии»)
 const GO_ONLINE = ['на линию','выхожу','начинаю','работаю','онлайн','старт','начать','жұмыс','жұмысқа','линияға шығам','шығамын'];
@@ -172,6 +173,7 @@ const route = async (body) => {
 
       if (!inReg && !isFullyRegistered) {
         console.log(`[Router] Неполный водитель ${phone} → принудительно клиентский режим`);
+        suspicious(phone, 'DRIVER', 'Попытка принять заказ без полной регистрации');
         await wa.sendText(phone,
           '⚠️ Вы не завершили регистрацию водителя.\n\n' +
           'Чтобы работать водителем — завершите регистрацию.\n' +
