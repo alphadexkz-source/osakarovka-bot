@@ -49,15 +49,26 @@ const create = async (clientPhone, destination, priceInfo) => {
     client_id: client.id, destination,
     price: priceInfo.price, tariff_id: priceInfo.tariff?.id || null, is_free: isFree,
   }
-  if (priceInfo.pickup_address) orderData.pickup_address = priceInfo.pickup_address
-  if (priceInfo.is_intercity) orderData.is_intercity = true
+  if (priceInfo.pickup_address)  orderData.pickup_address  = priceInfo.pickup_address
+  if (priceInfo.is_intercity)    orderData.is_intercity    = true
+  if (priceInfo.scheduled_time)  orderData.scheduled_time  = priceInfo.scheduled_time
 
   const order = await q.createOrder(orderData)
+
+  // ── Предзаказ: уведомляем и ждём время ──────────────────────────────────────
+  if (priceInfo.scheduled_time) {
+    log.order('scheduled', { orderId: order.id, client: clientPhone, dest: destination, scheduledFor: priceInfo.scheduled_time })
+    const label = priceInfo.scheduled_label || 'запланированное время'
+    await notify.scheduledCreated(clientPhone, destination, label, priceInfo.price)
+    await q.setSession(clientPhone, 'scheduled', { order_id: order.id, scheduled_label: label })
+    return order
+  }
+
+  // ── Обычный заказ: ищем водителя сразу ─────────────────────────────────────
   log.order('create', { orderId: order.id, client: clientPhone, dest: destination, price: priceInfo.price, isFree })
   await notify.clientSearching(clientPhone, destination, priceInfo.price, isFree)
   await q.setSession(clientPhone, 'waiting_driver', { order_id: order.id })
 
-  // Уведомление если ищем долго (3 мин)
   setTimeout(async () => {
     try {
       const fresh = await q.getOrder(order.id).catch(() => null)
@@ -71,6 +82,34 @@ const create = async (clientPhone, destination, priceInfo) => {
   if (mode === 'first') dispatch_first(order).catch(e => console.error('[dispatch_first]', e.message))
   else dispatch_queue(order.id, [], 0).catch(e => console.error('[dispatch_queue]', e.message))
   return order
+}
+
+// Запускает предзаказ в момент наступления времени (вызывается из timerService)
+const startScheduled = async (orderId, clientPhone) => {
+  // Атомарный переход: scheduled → searching (защита от двойного запуска)
+  const r = await db.query(
+    `UPDATE orders SET status='searching' WHERE id=$1 AND status='scheduled' RETURNING *`,
+    [orderId]
+  )
+  if (!r.rows[0]) return // Уже обработан
+
+  const order = r.rows[0]
+  log.order('scheduled_start', { orderId, client: clientPhone, dest: order.destination })
+  await notify.scheduledStarting(clientPhone, order.destination)
+  await q.setSession(clientPhone, 'waiting_driver', { order_id: orderId })
+
+  setTimeout(async () => {
+    try {
+      const fresh = await q.getOrder(orderId).catch(() => null)
+      if (fresh?.status === 'searching') {
+        await wa.sendText(clientPhone, '🔍 *Ещё ищем водителя...* Спасибо за терпение!')
+      }
+    } catch (e) { console.error('[startScheduled/3min]', e.message) }
+  }, 3 * 60 * 1000)
+
+  const mode = await q.getSetting('distribution_mode') || 'queue'
+  if (mode === 'first') dispatch_first(order).catch(e => console.error('[startScheduled/first]', e.message))
+  else dispatch_queue(orderId, [], 0).catch(e => console.error('[startScheduled/queue]', e.message))
 }
 
 const dispatch_queue = async (orderId, triedInit, circlesInit) => {
@@ -355,4 +394,5 @@ module.exports = {
   falseCall: safe(falseCall),
   resumeDispatch: safe(resumeDispatch),
   skipOrder: safe(skipOrder),
+  startScheduled: safe(startScheduled),
 }

@@ -135,6 +135,27 @@ const falseCallAdmin  = async (adminPhone, clientPhone, driverName, fine) => {
   await wa.sendText(adminPhone, `⚠️ *Ложный вызов*\n👤 Клиент: ${clientPhone}\n🚗 Водитель: ${driverName}\n💸 Штраф: ${fine} тг`);
 };
 
+// ─── Предзаказ ───────────────────────────────────────────────────────────────
+
+const scheduledCreated = async (phone, dest, label, price) =>
+  wa.sendText(phone,
+    `📅 *Предзаказ создан!*\n\n📍 *${dest}*\n⏰ *${label}*\n💰 *${price} тг*\n\n` +
+    `✅ Мы пришлём напоминание за 30 минут и начнём поиск водителя.\n` +
+    `Чтобы отменить — напишите *отмена*.`
+  )
+
+const scheduledReminder = async (phone, dest, label) =>
+  wa.sendText(phone,
+    `🔔 *Напоминание о предзаказе!*\n\n📍 *${dest}*\n⏰ *${label}*\n\n` +
+    `Через 30 минут начнём поиск водителя.\n` +
+    `Если хотите отменить — напишите *отмена*.`
+  )
+
+const scheduledStarting = async (phone, dest) =>
+  wa.sendText(phone,
+    `🚖 *Начинаем поиск водителя!*\n\n📍 *${dest}*\n\n🔍 Ваш предзаказ активирован. Ищем водителя...`
+  )
+
 const broadcast = async (role, message) => {
   const all  = role === 'driver' ? await q.getAllDrivers() : await q.getAllClients();
   const list = role === 'driver' ? all.filter(d => d.status !== 'blocked') : all;
@@ -154,5 +175,6 @@ module.exports = {
   driverTimeout, driverBalanceLow, driverBalanceEmpty,
   driverInactiveOffline, driverLongWait, driverStats,
   falseCallClient, falseCallDriver, falseCallAdmin,
+  scheduledCreated, scheduledReminder, scheduledStarting,
   broadcast,
 };

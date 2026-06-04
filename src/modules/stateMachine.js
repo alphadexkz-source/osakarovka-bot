@@ -30,6 +30,9 @@ const VALID_STATES = new Set([
   'intercity_pickup',     // межгород: ввод адреса подачи
   'intercity_time',       // межгород: ввод времени
   'intercity_confirm',    // межгород: подтверждение
+  'schedule_time',        // предзаказ: ввод времени
+  'scheduled_confirm',    // предзаказ: подтверждение
+  'scheduled',            // предзаказ: ожидание наступления времени
 
   // Водитель
   'driver_as_client', // водитель заказывает такси для себя
@@ -73,6 +76,10 @@ const ALLOWED_TRANSITIONS = {
   'intercity_pickup':     ['intercity_time', 'idle'],
   'intercity_time':       ['intercity_confirm', 'idle'],
   'intercity_confirm':    ['waiting_driver', 'idle'],
+  'confirming':           ['waiting_driver', 'idle', 'schedule_time', 'scheduled_confirm'],
+  'schedule_time':        ['scheduled_confirm', 'confirming', 'idle'],
+  'scheduled_confirm':    ['scheduled', 'idle'],
+  'scheduled':            ['waiting_driver', 'idle'],
 }
 
 // ─── Хелперы ──────────────────────────────────────────────────

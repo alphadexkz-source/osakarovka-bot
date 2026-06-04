@@ -2,12 +2,38 @@ const db = require('../index')
 const { safeSet, ALLOWED_ORDER_COLS } = require('./utils')
 const { getSession } = require('./sessionQueries')
 
-const createOrder = async ({ client_id, destination, price, tariff_id, is_free, pickup_address, is_intercity }) => {
+const createOrder = async ({ client_id, destination, price, tariff_id, is_free, pickup_address, is_intercity, scheduled_time }) => {
+  const status = scheduled_time ? 'scheduled' : 'searching'
   const r = await db.query(
-    `INSERT INTO orders(client_id,destination,price,tariff_id,is_free,pickup_address,is_intercity) VALUES($1,$2,$3,$4,$5,$6,$7) RETURNING *`,
-    [client_id, destination, price, tariff_id || null, is_free || false, pickup_address || null, is_intercity || false]
+    `INSERT INTO orders(client_id,destination,price,tariff_id,is_free,pickup_address,is_intercity,scheduled_time,status)
+     VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING *`,
+    [client_id, destination, price, tariff_id || null, is_free || false, pickup_address || null, is_intercity || false, scheduled_time || null, status]
   )
   return r.rows[0]
+}
+
+// Предзаказы, время которых наступило (scheduled_time в прошлом или в течение 1 мин)
+const getScheduledOrdersDue = async () => {
+  const r = await db.query(
+    `SELECT o.*, u.phone AS client_phone FROM orders o
+     JOIN users u ON o.client_id=u.id
+     WHERE o.status='scheduled'
+       AND o.scheduled_time <= NOW() + INTERVAL '1 minute'`
+  )
+  return r.rows
+}
+
+// Предзаказы за N минут — для напоминания (не помеченные как reminded)
+const getScheduledOrdersSoon = async (mins) => {
+  const r = await db.query(
+    `SELECT o.*, u.phone AS client_phone FROM orders o
+     JOIN users u ON o.client_id=u.id
+     WHERE o.status='scheduled'
+       AND o.scheduled_reminder_sent = false
+       AND o.scheduled_time BETWEEN NOW() AND NOW() + make_interval(mins => $1::int)`,
+    [mins]
+  )
+  return r.rows
 }
 
 const getOrder = async (id) => {
@@ -224,4 +250,6 @@ module.exports = {
   setArriveWarned,
   getUnwarnedArrivals,
   saveRating,
+  getScheduledOrdersDue,
+  getScheduledOrdersSoon,
 }

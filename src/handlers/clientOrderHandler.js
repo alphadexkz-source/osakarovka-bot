@@ -6,6 +6,7 @@ const tariff = require('../modules/tariffEngine')
 const config = require('../config')
 const { isAddress, resolveAddress } = require('../modules/addressDetector')
 const { parseScheduleTime } = require('../modules/smartReply')
+const { detectInlineSchedule, parseScheduleDate, formatScheduleLabel, minutesUntil } = require('../modules/scheduleParser')
 const { recognizeVoice } = require('../modules/voiceRecognizer')
 const { detectVoiceIntent } = require('../modules/voiceCommands')
 const { normalizeVoice } = require('../modules/voiceUtils')
@@ -136,14 +137,43 @@ const handle = async (phone, name, msg, session) => {
 const handleNewOrder = async (phone, name, text, user) => {
   if (!text || text.length < 2) return
   const active = await q.getActiveOrderByClient(phone)
-  if (active) { await wa.sendText(phone, '⚠️ У вас уже есть активный заказ!\n📍 *' + active.destination + '*\n\nДождитесь завершения или отмените его.'); return }
+  if (active) {
+    if (active.status === 'scheduled') {
+      const label = active.scheduled_time
+        ? formatScheduleLabel(active.scheduled_time)
+        : 'запланированное время'
+      await wa.sendButtons(phone,
+        '📅 *У вас предзаказ:*\n\n📍 *' + active.destination + '*\n⏰ ' + label + '\n💰 ' + active.price + ' тг',
+        [{ id: 'cancel_scheduled', text: '❌ Отменить предзаказ' }]
+      )
+    } else {
+      await wa.sendText(phone, '⚠️ У вас уже есть активный заказ!\n📍 *' + active.destination + '*\n\nДождитесь завершения или отмените его.')
+    }
+    return
+  }
   if (isIntercity(text)) {
     await q.setSession(phone, 'intercity_pickup', { destination: text })
     await wa.sendText(phone, '🚗 Межгородская поездка!\n🏁 Куда: *' + text + '*\n\n📍 Откуда вас забрать?\n(напишите адрес или ориентир)')
     return
   }
+
+  // Автодетект предзаказа в конце сообщения: "Алаш 15 завтра в 8"
+  const inlineSched = detectInlineSchedule(text)
+  if (inlineSched) {
+    const { cleanAddress, scheduledFor, label } = inlineSched
+    const pi = await tariff.getPrice(cleanAddress)
+    await q.setSession(phone, 'scheduled_confirm', {
+      destination: cleanAddress, price: pi.price, tariff_id: pi.tariff?.id || null,
+      scheduled_for: scheduledFor.toISOString(), scheduled_label: label,
+    })
+    await wa.sendButtons(phone,
+      '📅 *Предзаказ:*\n\n📍 Куда: *' + addStreetAlias(cleanAddress) + '*\n⏰ Время: *' + label + '*\n💰 Цена: *' + pi.price + ' тг*\n\nПодтверждаете?',
+      [{ id: 'confirm_scheduled', text: '✅ Подтвердить' }, { id: 'cancel_new', text: '❌ Отмена' }]
+    )
+    return
+  }
+
   const resolved = await resolveAddress(text).catch(() => ({ found: false }))
-  // resolved.name используем только если он содержит оригинальный текст (истинное обогащение)
   const enriched = resolved.found && (
     resolved.groqNormalized ||
     resolved.name.toLowerCase().includes(text.trim().toLowerCase())
@@ -156,7 +186,7 @@ const handleNewOrder = async (phone, name, text, user) => {
   const displayWithAlias = addStreetAlias(displayAddress)
   await wa.sendButtons(phone,
     '🚖 *Ваш заказ:*\n\n📍 Куда: *' + displayWithAlias + '*\n💰 Цена: *' + pi.price + ' тг*' + nightNote + freeNote + '\n\nВсё верно?',
-    [{ id:'confirm_order', text:'✅ Да, поехали!' }, { id:'cancel_new', text:'❌ Отмена' }])
+    [{ id:'confirm_order', text:'✅ Да, поехали!' }, { id:'schedule_it', text:'📅 На потом' }, { id:'cancel_new', text:'❌ Отмена' }])
   await q.setSession(phone, 'confirming', { destination: displayAddress, price: pi.price, tariff_id: pi.tariff?.id||null })
 }
 
@@ -243,8 +273,103 @@ const handleOrderState = async (phone, name, lo, text, msg, session) => {
     if (f?.ctx?.destination) {
       await wa.sendButtons(phone,
         '🚖 *Ваш заказ:*\n\n📍 Куда: *' + f.ctx.destination + '*\n💰 Цена: *' + f.ctx.price + ' тг*\n\nВсё верно?',
-        [{ id:'confirm_order', text:'✅ Да, поехали!' }, { id:'cancel_new', text:'❌ Отмена' }])
+        [{ id:'confirm_order', text:'✅ Да, поехали!' }, { id:'schedule_it', text:'📅 На потом' }, { id:'cancel_new', text:'❌ Отмена' }])
     }
+    return true
+  }
+
+  // ─── Ввод времени предзаказа ─────────────────────────────────────────────────
+  if (state === 'schedule_time') {
+    if (isCancel(lo)) {
+      const f = await q.getSession(phone)
+      // Возврат к confirming если есть сохранённый адрес
+      if (f?.ctx?.destination) {
+        await q.setSession(phone, 'confirming', f.ctx)
+        await wa.sendButtons(phone,
+          '🚖 *Ваш заказ:*\n\n📍 Куда: *' + f.ctx.destination + '*\n💰 Цена: *' + f.ctx.price + ' тг*\n\nВсё верно?',
+          [{ id:'confirm_order', text:'✅ Да, поехали!' }, { id:'schedule_it', text:'📅 На потом' }, { id:'cancel_new', text:'❌ Отмена' }]
+        )
+      } else {
+        await q.clearSession(phone)
+        await wa.sendText(phone, '❌ Отменено. Напишите куда ехать.')
+      }
+      return true
+    }
+    // Парсим время через Groq
+    const timeStr = await parseScheduleTime(text).catch(() => null)
+    if (!timeStr || timeStr === 'сейчас') {
+      // "сейчас" → обычный немедленный заказ
+      const f = await q.getSession(phone)
+      if (f?.ctx?.destination) {
+        const { destination, price, tariff_id } = f.ctx
+        await orderEngine.create(phone, destination, { price, tariff: tariff_id ? { id: tariff_id } : null })
+      }
+      return true
+    }
+    const scheduledFor = parseScheduleDate(timeStr)
+    if (!scheduledFor || scheduledFor <= new Date()) {
+      await wa.sendText(phone, '❌ Это время уже прошло. Напишите время в будущем:\n*завтра в 8:00*, *сегодня в 17:30*, *через 2 часа*')
+      return true
+    }
+    const label = formatScheduleLabel(scheduledFor)
+    const f = await q.getSession(phone)
+    const ctx = f?.ctx || {}
+    await q.setSession(phone, 'scheduled_confirm', {
+      ...ctx,
+      scheduled_for: scheduledFor.toISOString(),
+      scheduled_label: label,
+    })
+    await wa.sendButtons(phone,
+      '📅 *Предзаказ:*\n\n📍 Куда: *' + addStreetAlias(ctx.destination || '') + '*\n⏰ Время: *' + label + '*\n💰 Цена: *' + (ctx.price || 0) + ' тг*\n\nПодтверждаете?',
+      [{ id: 'confirm_scheduled', text: '✅ Подтвердить' }, { id: 'cancel_new', text: '❌ Отмена' }]
+    )
+    return true
+  }
+
+  // ─── Подтверждение предзаказа ─────────────────────────────────────────────────
+  if (state === 'scheduled_confirm') {
+    if (isCancel(lo)) { await q.clearSession(phone); await wa.sendText(phone, '❌ Отменено. Напишите куда ехать.'); return true }
+    if (isConfirm(lo)) {
+      const f = await q.getSession(phone)
+      if (!f || f.state !== 'scheduled_confirm') return true
+      const { destination, price, tariff_id, scheduled_for, scheduled_label } = f.ctx
+      await orderEngine.create(phone, destination, {
+        price, tariff: tariff_id ? { id: tariff_id } : null,
+        scheduled_time: scheduled_for, scheduled_label,
+      })
+      return true
+    }
+    // Повтор вопроса
+    const f = await q.getSession(phone)
+    if (f?.ctx?.destination) {
+      await wa.sendButtons(phone,
+        '📅 *Предзаказ:*\n\n📍 *' + f.ctx.destination + '*\n⏰ *' + f.ctx.scheduled_label + '*\n💰 *' + f.ctx.price + ' тг*\n\nПодтверждаете?',
+        [{ id: 'confirm_scheduled', text: '✅ Подтвердить' }, { id: 'cancel_new', text: '❌ Отмена' }]
+      )
+    }
+    return true
+  }
+
+  // ─── Ожидание предзаказа ──────────────────────────────────────────────────────
+  if (state === 'scheduled') {
+    const ctx = session?.ctx || {}
+    const label = ctx.scheduled_label || 'запланированное время'
+    if (isCancel(lo)) {
+      const order = await q.getActiveOrderByClient(phone)
+      if (order) await orderEngine.cancel(order.id, 'Отменён клиентом')
+      else await q.clearSession(phone)
+      await wa.sendText(phone, '❌ Предзаказ отменён.\n\nНапишите куда ехать. 🚖')
+      return true
+    }
+    const order = await q.getActiveOrderByClient(phone)
+    const mins = order?.scheduled_time ? minutesUntil(order.scheduled_time) : null
+    const timeInfo = mins !== null
+      ? (mins > 0 ? `через *${mins} мин*` : 'сейчас начинаем поиск')
+      : label
+    await wa.sendButtons(phone,
+      '📅 *Предзаказ активен*\n\n📍 *' + (order?.destination || ctx.destination || '—') + '*\n⏰ ' + label + ' (' + timeInfo + ')\n💰 *' + (order?.price || ctx.price || '—') + ' тг*\n\nЧтобы отменить — нажмите кнопку или напишите *отмена*.',
+      [{ id: 'cancel_scheduled', text: '❌ Отменить предзаказ' }]
+    )
     return true
   }
 
@@ -258,6 +383,39 @@ const handleOrderButton = async (phone, buttonId, session) => {
     if (!f || f.state !== 'confirming') return true
     const { destination, price, tariff_id } = f.ctx
     await orderEngine.create(phone, destination, { price, tariff: tariff_id ? { id: tariff_id } : null })
+    return true
+  }
+  // Кнопка "📅 На потом" — переходим к вводу времени предзаказа
+  if (buttonId === 'schedule_it') {
+    const f = await q.getSession(phone)
+    if (!f?.ctx?.destination) { await q.clearSession(phone); await wa.sendText(phone, '❌ Ошибка сессии. Напишите адрес заново.'); return true }
+    await q.setSession(phone, 'schedule_time', f.ctx)
+    await wa.sendText(phone,
+      '⏰ *На какое время запланировать поездку?*\n\n' +
+      'Примеры:\n• завтра в 8:00\n• сегодня в 17:30\n• через 2 часа\n• в 9 утра\n\nИли напишите *сейчас* для немедленного заказа.'
+    )
+    return true
+  }
+  // Кнопка "✅ Подтвердить" предзаказа
+  if (buttonId === 'confirm_scheduled') {
+    const f = await q.getSession(phone)
+    if (!f || f.state !== 'scheduled_confirm') return true
+    const { destination, price, tariff_id, scheduled_for, scheduled_label } = f.ctx
+    await orderEngine.create(phone, destination, {
+      price, tariff: tariff_id ? { id: tariff_id } : null,
+      scheduled_time: scheduled_for, scheduled_label,
+    })
+    return true
+  }
+  // Кнопка "❌ Отменить предзаказ"
+  if (buttonId === 'cancel_scheduled') {
+    const order = await q.getActiveOrderByClient(phone)
+    if (order && order.status === 'scheduled') {
+      await orderEngine.cancel(order.id, 'Отменён клиентом')
+    } else {
+      await q.clearSession(phone)
+    }
+    await wa.sendText(phone, '❌ Предзаказ отменён.\n\nНапишите куда ехать. 🚖')
     return true
   }
   if (buttonId === 'confirm_intercity') {

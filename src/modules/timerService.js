@@ -179,6 +179,32 @@ const checkBreakTimers = async () => {
   return expired.length;
 }
 
+// ─── Предзаказы ───────────────────────────────────────────────
+
+const checkScheduledOrders = async () => {
+  // 1. Напоминание за 30 мин до запланированного времени
+  const soonOrders = await q.getScheduledOrdersSoon(30).catch(() => [])
+  for (const order of soonOrders) {
+    try {
+      const { formatScheduleLabel } = require('./scheduleParser')
+      const label = order.scheduled_time ? formatScheduleLabel(order.scheduled_time) : 'запланированное время'
+      await wa.sendText(order.client_phone,
+        '🔔 *Напоминание о предзаказе!*\n\n📍 *' + order.destination + '*\n⏰ ' + label + '\n\nЧерез 30 минут начнём поиск водителя.\nЧтобы отменить — напишите *отмена*.'
+      ).catch(() => {})
+      await db.query(`UPDATE orders SET scheduled_reminder_sent=true WHERE id=$1`, [order.id])
+    } catch (e) { console.error('[Timer/sched_reminder]', e.message) }
+  }
+
+  // 2. Запуск диспетчеризации по наступлению времени
+  const dueOrders = await q.getScheduledOrdersDue().catch(() => [])
+  for (const order of dueOrders) {
+    try {
+      console.log(`[TimerService] Запуск предзаказа #${order.id} → ${order.destination}`)
+      await orderEngine.startScheduled(order.id, order.client_phone)
+    } catch (e) { console.error('[Timer/sched_start]', e.message) }
+  }
+}
+
 // ─── Запуск всех крон-задач ───────────────────────────────────
 
 const start = () => {
@@ -198,11 +224,12 @@ const start = () => {
 
   console.log('[TimerService] Расписание активно');
 
-  // Каждую минуту — проверка зависших диспетчеризаций + ожидающих + истёкших перерывов
+  // Каждую минуту — проверка зависших диспетчеризаций + ожидающих + перерывов + предзаказов
   cron.schedule('*/1 * * * *', async () => {
     try { await checkDispatchTimeouts() } catch (e) { console.error('[Timer/dispatch_timeout]', e.message) }
     try { await checkWaitingDispatches() } catch (e) { console.error('[Timer/waiting_dispatches]', e.message) }
     try { await checkBreakTimers() } catch (e) { console.error('[Timer/break_timers]', e.message) }
+    try { await checkScheduledOrders() } catch (e) { console.error('[Timer/scheduled_orders]', e.message) }
   })
 
   // Каждые 2 минуты — предупреждения о долгом ожидании прибытия
