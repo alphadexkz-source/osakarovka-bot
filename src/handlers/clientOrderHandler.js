@@ -8,6 +8,7 @@ const { isAddress, resolveAddress } = require('../modules/addressDetector')
 const { parseScheduleTime } = require('../modules/smartReply')
 const { recognizeVoice } = require('../modules/voiceRecognizer')
 const { detectVoiceIntent } = require('../modules/voiceCommands')
+const { normalizeVoice } = require('../modules/voiceUtils')
 const log = require('../logger')
 const { clientTest } = require('../modules/testLogger')
 
@@ -47,14 +48,22 @@ const INTERCITY = [
   'михайловка','алексеевка','петровка','ивановка','новосёловка','красногорка',
   '1 поселок','2 поселок','3 поселок','4 поселок','первый поселок','второй поселок',
   // Города Карагандинской области и Казахстана
-  'темиртау','балхаш','жезказган','жезқазған','сатпаев','приозёрск','каражал',
-  'астана','нурсултан','нур-султан','алматы','алма-ата','шымкент',
-  'кокшетау','павлодар','петропавловск','семей','усть-каменогорск','актобе',
+  'темиртау','балхаш','балхаша','балхашу','жезказган','жезқазған','сатпаев','приозёрск','каражал',
+  'астана','астану','астаны','астане',
+  'нурсултан','нурсултана','нурсултану','нур-султан',
+  'алматы','алма-ата','шымкент',
+  'кокшетау','павлодар','петропавловск','семей','семея','усть-каменогорск','актобе',
   'костанай','атырау','актау','тараз','кызылорда','уральск',
   'абай','шахтинск','сарань','топар','карагандинск','агадырь',
+  'карагандa','карагандy','карагандe',
 ]
 
-const isIntercity = (text) => INTERCITY.some(w => (text||'').toLowerCase().includes(w))
+const isIntercity = (text) => {
+  const lo = normalizeVoice(text)
+  return INTERCITY.some(w => lo.includes(w)) ||
+    lo.includes('астану') || lo.includes('астаны') || lo.includes('астане') ||
+    lo.includes('карагандy') || lo.includes('карагандe')
+}
 
 const CANCEL_EXACT    = ['нет','жок','стоп','нет.','жоқ']
 const CANCEL_CONTAINS = ['отмена','cancel','назад','выход','отменить','не надо']
