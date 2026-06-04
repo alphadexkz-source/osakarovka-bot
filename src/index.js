@@ -18,7 +18,7 @@ const { start: startTimers } = require('./modules/timerService');
 const config  = require('./config');
 const db      = require('./db/index');
 const wa      = require('./whatsapp/greenApi');
-const { getRecentMessageIds } = require('./db/queries');
+const { getRecentMessageIds, getSetting, setSetting } = require('./db/queries');
 
 const app = express();
 app.use(express.json({ limit: '5mb' }));
@@ -247,11 +247,11 @@ const server = app.listen(config.PORT, async () => {
   startTimers();
 
   // Уведомление админу о рестарте (cooldown 10 мин — защита от crash-loop спама)
-  q.getSetting('admin_phone').then(async (adminPhone) => {
+  getSetting('admin_phone').then(async (adminPhone) => {
     if (!adminPhone) return;
-    const lastNotif = await q.getSetting('last_restart_notif').catch(() => null);
+    const lastNotif = await getSetting('last_restart_notif').catch(() => null);
     if (lastNotif && Date.now() - new Date(lastNotif).getTime() < 10 * 60 * 1000) return;
-    await q.setSetting('last_restart_notif', new Date().toISOString());
+    await setSetting('last_restart_notif', new Date().toISOString());
     const t = new Date().toLocaleString('ru-RU', { timeZone: 'Asia/Almaty' });
     await wa.sendText(adminPhone,
       `🔄 *Бот перезапущен*\n\n⏰ ${t}\n📌 v${BOT_VERSION}\n\n✅ Работает нормально.`
