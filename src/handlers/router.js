@@ -109,7 +109,8 @@ const route = async (body) => {
 
     const session = await q.getSession(phone);
     const role = user?.role || 'new';
-    log.msg(phone, role, session?.state || 'idle', msg.type, msg.text);
+    const isSensitive = text.toUpperCase().trim() === config.DRIVER_CODE.toUpperCase();
+    log.msg(phone, role, session?.state || 'idle', msg.type, isSensitive ? '[HIDDEN]' : msg.text);
     const lo = (text||'').toLowerCase().trim();
 
     // ─── АДМИН ПАНЕЛЬ ─────────────────────────────────────────
@@ -181,8 +182,15 @@ const route = async (body) => {
 
       const isFullyRegistered = !!(driver.full_name && driver.car_plate && driver.car_make);
 
-      // Есть запись но неполная → понижаем роль (намеренно бросил регистрацию)
+      // Есть запись но поля пустые → запускаем регистрацию (новый водитель)
       if (!inReg && !isFullyRegistered) {
+        const isEmpty = !driver.full_name && !driver.car_plate && !driver.car_make;
+        if (isEmpty) {
+          await q.setSession(phone, 'reg_name', {});
+          await wa.sendText(phone, 'Для работы водителем пройдите регистрацию.\n\nШаг 1/5: Введите ваше полное имя (ФИО):');
+          return;
+        }
+        // Частично заполнен — понижаем роль
         console.log(`[Router] Неполный водитель ${phone} → клиентский режим`);
         suspicious(phone, 'DRIVER', 'Попытка работать без полной регистрации');
         await wa.sendText(phone, '⚠️ Завершите регистрацию водителя или обратитесь к администратору.');

@@ -84,14 +84,14 @@ const getAllDrivers = async () => {
 }
 
 const moveDriverToEndOfQueue = async (phone) => {
-  const maxR = await db.query(
-    "SELECT COALESCE(MAX(queue_position),0) AS mp FROM drivers WHERE status='online'"
-  )
-  const pos = (maxR.rows[0]?.mp || 0) + 1
+  // Атомарно: используем Unix-timestamp (сек) как позицию.
+  // FIFO-порядок сохраняется, race condition исключён — нет отдельного SELECT.
   await db.query(
-    `UPDATE drivers SET queue_position=$2,last_activity=NOW()
-     WHERE user_id=(SELECT id FROM users WHERE phone=$1)`,
-    [phone, pos]
+    `UPDATE drivers SET
+       queue_position = EXTRACT(EPOCH FROM clock_timestamp())::int,
+       last_activity  = NOW()
+     WHERE user_id = (SELECT id FROM users WHERE phone=$1)`,
+    [phone]
   )
 }
 

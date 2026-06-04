@@ -244,8 +244,9 @@ const server = app.listen(config.PORT, async () => {
 // ─── Graceful shutdown ────────────────────────────────────────
 const shutdown = async (signal) => {
   console.log(`\n[${signal}] Завершение работы...`);
-  server.close(() => {
+  server.close(async () => {
     console.log('HTTP сервер остановлен');
+    await db.end().catch(() => {});
     process.exit(0);
   });
   setTimeout(() => process.exit(1), 5000);

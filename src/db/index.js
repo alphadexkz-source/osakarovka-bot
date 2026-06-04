@@ -36,4 +36,5 @@ connectWithRetry()
 module.exports = {
   query: (t, p) => pool.query(t, p),
   getClient: () => pool.connect(),
+  end: () => pool.end(),
 }
