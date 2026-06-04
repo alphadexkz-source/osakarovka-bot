@@ -118,7 +118,7 @@ const getAnalysis = async (text) => {
   const lo = (text || '').toLowerCase().trim();
   if (!lo || lo.length < 2) return { is_address: false };
   if (/^\d+$/.test(lo)) return { is_address: false };
-  if (lo.includes('?')) return { is_address: false };
+  if (lo.endsWith('?') && !/\d/.test(lo)) return { is_address: false };
   if (NOT_ADDRESS.includes(lo)) return { is_address: false };
 
   if (cache.has(lo)) return cache.get(lo);
