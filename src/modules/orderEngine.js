@@ -173,7 +173,11 @@ const accept = async (orderId, driverPhone) => {
   const driver = await q.getDriver(driverPhone)
   if (!driver) return { error: 'driver_not_found' }
   const accepted = await q.atomicAcceptOrder(orderId, driver.id)
-  if (!accepted) { log.warn('orderEngine', 'already_taken', { orderId, driver: driverPhone }); return { error: 'already_taken' } }
+  if (!accepted) {
+    log.warn('orderEngine', 'already_taken', { orderId, driver: driverPhone })
+    await q.setSession(driverPhone, 'idle', {}).catch(() => {}) // чистим stale pending_order_id
+    return { error: 'already_taken' }
+  }
 
   clearTimer(acceptTimers, orderId)
   // Снимаем dispatch state из БД после принятия

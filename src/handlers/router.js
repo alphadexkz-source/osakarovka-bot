@@ -4,7 +4,6 @@ const clientHandler = require('./clientHandler');
 const driverHandler = require('./driverHandler');
 const adminHandler = require('./adminHandler');
 const config = require('../config');
-const { newClientGreeting } = require('../modules/greetingService');
 const log = require('../logger');
 const { suspicious } = require('../modules/testLogger');
 
