@@ -40,11 +40,10 @@ async function run() {
 
   // 2. Создаём монитор в UptimeRobot
   const body = new URLSearchParams({
-    api_key:      API_KEY,
+    api_key:       API_KEY,
     friendly_name: NAME,
     url:           BOT_URL,
-    type:          '1',   // HTTP(S) — проверяет что статус 200
-    interval:      '300', // 5 минут
+    type:          '1', // HTTP(S) — проверяет что статус 200
   });
 
   const res = await fetch('https://api.uptimerobot.com/v2/newMonitor', {
