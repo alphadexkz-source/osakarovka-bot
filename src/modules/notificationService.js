@@ -136,7 +136,8 @@ const falseCallAdmin  = async (adminPhone, clientPhone, driverName, fine) => {
 };
 
 const broadcast = async (role, message) => {
-  const list = role==='driver' ? await q.getAllDrivers() : await q.getAllClients();
+  const all  = role === 'driver' ? await q.getAllDrivers() : await q.getAllClients();
+  const list = role === 'driver' ? all.filter(d => d.status !== 'blocked') : all;
   let sent = 0;
   for (const u of list) {
     await wa.sendText(u.phone, `📢 *Объявление:*\n\n${message}`);

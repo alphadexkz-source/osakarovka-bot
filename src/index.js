@@ -193,7 +193,24 @@ async function recoverOnStartup() {
          )`
     );
 
-    // 4. Предзагрузка дедупликации сообщений из БД
+    // 4. Чистим pending_order_id у водителей, чей заказ уже не в searching
+    //    (заказ отменён/принят другим — водитель иначе застрянет с кнопкой «принял»)
+    const stalePending = await db.query(
+      `UPDATE sessions
+       SET ctx = ctx - 'pending_order_id'
+       WHERE ctx ? 'pending_order_id'
+         AND NOT EXISTS (
+           SELECT 1 FROM orders
+           WHERE id = (ctx->>'pending_order_id')::int
+             AND status = 'searching'
+         )
+       RETURNING phone`
+    );
+    if (stalePending.rows.length) {
+      console.log(`✅ Очищено stale pending_order_id у ${stalePending.rows.length} водителей`);
+    }
+
+    // 5. Предзагрузка дедупликации сообщений из БД
     await preloadMessageDedup();
 
   } catch (err) {

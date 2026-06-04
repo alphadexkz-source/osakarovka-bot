@@ -13,7 +13,7 @@ const clientOrderHandler = require('./clientOrderHandler')
 const clientInfoHandler = require('./clientInfoHandler')
 const clientProfileHandler = require('./clientProfileHandler')
 
-const ORDER_STATES = ['cancel_client_reason','waiting_driver','in_trip','confirming','intercity_pickup','intercity_time','intercity_confirm']
+const ORDER_STATES = ['cancel_client_reason','waiting_driver','in_trip','confirming','intercity_pickup','intercity_confirm']
 
 const getSmartReply = (text) => {
   const lo = (text||'').toLowerCase().trim()
