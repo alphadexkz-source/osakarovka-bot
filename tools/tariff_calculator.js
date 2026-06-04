@@ -99,6 +99,45 @@ const DESTS = [
 
 // ────────────────────────────────────────────────────
 
+const DGIS_KEY = process.env.DGIS_API_KEY || '43555b4f-e473-4a21-bfdc-4f6120c52d05'
+
+// 2GIS Routing API — такси-маршрут с учётом дорог Казахстана
+// Ограничение demo-ключа: max 50 км
+const fetch2GIS = (d) => new Promise(resolve => {
+  const body = JSON.stringify({
+    points: [
+      { type: 'pedo', lon: ORIGIN.lon, lat: ORIGIN.lat },
+      { type: 'pedo', lon: d.lon,      lat: d.lat      },
+    ],
+    transport: 'taxi',
+  })
+  const req = https.request({
+    hostname: 'routing.api.2gis.com',
+    path:     `/routing/7.0.0/global?key=${DGIS_KEY}`,
+    method:   'POST',
+    headers:  { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body) },
+  }, res => {
+    let buf = ''
+    res.on('data', c => buf += c)
+    res.on('end', () => {
+      try {
+        const r = JSON.parse(buf)
+        if (r.status !== 'OK' || !r.result?.[0]) { resolve(null); return }
+        const route = r.result[0]
+        resolve({
+          km:  +(route.total_distance / 1000).toFixed(1),
+          min: Math.round(route.total_duration / 60),
+          src: '2GIS',
+        })
+      } catch { resolve(null) }
+    })
+  })
+  req.on('error', () => resolve(null))
+  req.write(body)
+  req.end()
+})
+
+// OSRM fallback — для маршрутов >50 км
 const fetchOSRM = (d) => new Promise(resolve => {
   https.get(
     `https://router.project-osrm.org/route/v1/driving/${ORIGIN.lon},${ORIGIN.lat};${d.lon},${d.lat}?overview=false`,
@@ -108,13 +147,23 @@ const fetchOSRM = (d) => new Promise(resolve => {
       res.on('end', () => {
         try {
           const r = JSON.parse(buf).routes?.[0]
-          resolve({ km: r ? +(r.distance/1000).toFixed(1) : null,
-                    min: r ? Math.round(r.duration/60)    : null })
-        } catch { resolve({ km: null, min: null }) }
+          resolve(r ? {
+            km:  +(r.distance / 1000).toFixed(1),
+            min: Math.round(r.duration / 60),
+            src: 'OSRM',
+          } : null)
+        } catch { resolve(null) }
       })
     }
-  ).on('error', () => resolve({ km: null, min: null }))
+  ).on('error', () => resolve(null))
 })
+
+// Основная функция: пробуем 2GIS, при ошибке — OSRM
+const fetchRoute = async (d) => {
+  const r2gis = await fetch2GIS(d)
+  if (r2gis) return r2gis
+  return await fetchOSRM(d) || { km: null, min: null, src: '?' }
+}
 
 const calcPrice = min => min
   ? Math.round(Math.max(MIN, min * RATE) / ROUND) * ROUND
@@ -133,9 +182,9 @@ const sleep = ms => new Promise(r => setTimeout(r, ms))
   for (const d of DESTS) {
     if (d.s) { console.log(`\n${d.s}`); console.log(sep); console.log(hdr); console.log(sep); continue }
     await sleep(SLEEP)
-    const { km, min } = await fetchOSRM(d)
+    const { km, min, src } = await fetchRoute(d)
     const pr = d.fix ?? calcPrice(min)
-    const type = d.fix ? 'фикс' : 'формула'
+    const type = d.fix ? 'фикс' : `формула(${src})`
     console.log(
       p(d.name, 32) +
       pl(km  ?? '—', 5) + ' ' +
