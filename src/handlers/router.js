@@ -165,18 +165,27 @@ const route = async (body) => {
       const driverStatus = driver?.status || 'offline';
       const inReg = session?.state?.startsWith('reg_');
 
-      const isFullyRegistered = driver &&
-        driver.full_name &&
-        driver.car_plate &&
-        driver.car_make &&
-        driver.status !== 'blocked';
+      // Нет записи водителя вообще → запускаем регистрацию заново
+      if (!driver) {
+        await q.createDriver((await q.getUser(phone))?.id).catch(() => {});
+        await q.setSession(phone, 'reg_name', {});
+        await wa.sendText(phone, 'Для работы водителем пройдите регистрацию.\n\nШаг 1/5: Введите ваше полное имя (ФИО):');
+        return;
+      }
 
+      // Заблокирован → стоп
+      if (driver.status === 'blocked') {
+        await wa.sendText(phone, '🚫 Ваш аккаунт заблокирован. Обратитесь к администратору.');
+        return;
+      }
+
+      const isFullyRegistered = !!(driver.full_name && driver.car_plate && driver.car_make);
+
+      // Есть запись но неполная → понижаем роль (намеренно бросил регистрацию)
       if (!inReg && !isFullyRegistered) {
-        console.log(`[Router] Неполный водитель ${phone} → принудительно клиентский режим`);
-        suspicious(phone, 'DRIVER', 'Попытка принять заказ без полной регистрации');
-        await wa.sendText(phone,
-          '⚠️ Завершите регистрацию водителя или обратитесь к администратору.'
-        );
+        console.log(`[Router] Неполный водитель ${phone} → клиентский режим`);
+        suspicious(phone, 'DRIVER', 'Попытка работать без полной регистрации');
+        await wa.sendText(phone, '⚠️ Завершите регистрацию водителя или обратитесь к администратору.');
         await q.updateUser(phone, { role: 'client' }).catch(() => {});
         return clientHandler.handle(phone, name, msg, session);
       }
