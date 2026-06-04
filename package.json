@@ -6,7 +6,9 @@
   "scripts": {
     "start": "node src/index.js",
     "dev": "nodemon src/index.js",
-    "setup": "node src/db/setup.js"
+    "setup": "node src/db/setup.js",
+    "test": "cross-env NODE_OPTIONS=--max-old-space-size=512 jest --runInBand",
+    "test:coverage": "cross-env NODE_OPTIONS=--max-old-space-size=512 jest --runInBand --coverage"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.106.2",
@@ -19,6 +21,8 @@
     "pg": "^8.11.3"
   },
   "devDependencies": {
+    "cross-env": "^10.1.0",
+    "jest": "^30.4.2",
     "nodemon": "^3.0.3"
   }
 }

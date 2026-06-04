@@ -19,7 +19,8 @@ const COMMANDS = {
   STATS:   ['статистика', 'стат', 'итоги', 'заработок', 'қанша', 'сколько заработал'],
 }
 
-const CANCEL_WORDS = ['нет', 'не', 'отмена', 'отменить', 'не надо', 'жоқ', 'жок', 'отказ', 'стоп']
+// 'стоп' убран отсюда: он в COMMANDS.OFFLINE, и голосовой "стоп" должен давать go_offline (BUG-08)
+const CANCEL_WORDS = ['нет', 'не', 'отмена', 'отменить', 'не надо', 'жоқ', 'жок', 'отказ']
 
 /**
  * Проверяет голосовую отмену с защитой от подстрок:
@@ -48,13 +49,15 @@ const detectVoiceIntent = (text) => {
   // Клиентские — подтверждение имеет приоритет над отменой
   if (containsAny(text, COMMANDS.CONFIRM) && !isVoiceCancel(text))
     return { intent: 'confirm', text: normalized }
-  if (isVoiceCancel(text))
-    return { intent: 'cancel', text: normalized }
 
-  // Водительские — порядок: busy-команды первыми (чтобы 'стоп' не уходил в OFFLINE)
+  // Водительские — порядок: busy-команды первыми
+  // FALSE проверяется до CANCEL: "нет клиента" должно давать false_call, не cancel
   if (containsAny(text, COMMANDS.ARRIVED))  return { intent: 'arrived',      text: normalized }
   if (containsAny(text, COMMANDS.DONE))     return { intent: 'complete',     text: normalized }
   if (containsAny(text, COMMANDS.FALSE))    return { intent: 'false_call',   text: normalized }
+
+  if (isVoiceCancel(text))
+    return { intent: 'cancel', text: normalized }
   if (containsAny(text, COMMANDS.ACCEPT))   return { intent: 'accept_order', text: normalized }
   if (containsAny(text, COMMANDS.SKIP))     return { intent: 'skip',         text: normalized }
   if (containsAny(text, COMMANDS.ONLINE))   return { intent: 'go_online',    text: normalized }
