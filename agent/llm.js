@@ -1,61 +1,56 @@
 'use strict';
-const Groq = require('groq-sdk');
 
-let groq = null;
-const getGroq = () => {
-  if (!groq) groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
-  return groq;
-};
+// Claude claude-sonnet-4-6 с prompt caching
+// Системный промпт кешируется 5 мин — повторные вызовы 90% дешевле
+const ANTHROPIC_URL = 'https://api.anthropic.com/v1/messages';
+const MODEL         = 'claude-sonnet-4-6';
 
+// Claude tool format (input_schema вместо parameters)
 const TOOLS = [
   {
-    type: 'function',
-    function: {
-      name: 'save_memory',
-      description: 'Сохранить важный факт в долгосрочную память',
-      parameters: {
-        type: 'object',
-        properties: {
+    name: 'save_memory',
+    description: 'Сохранить важный факт в долгосрочную память',
+    input_schema: {
+      type: 'object',
+      properties: {
+        items: {
+          type: 'array',
           items: {
-            type: 'array',
-            items: {
-              type: 'object',
-              properties: {
-                category: { type: 'string', enum: ['project','user_pref','tech','status','decision'] },
-                key:       { type: 'string' },
-                content:   { type: 'string' },
-                importance:{ type: 'integer', minimum: 1, maximum: 10 },
-              },
-              required: ['category','key','content'],
+            type: 'object',
+            properties: {
+              category:   { type: 'string', enum: ['project','user_pref','tech','status','decision'] },
+              key:        { type: 'string' },
+              content:    { type: 'string' },
+              importance: { type: 'integer', minimum: 1, maximum: 10 },
             },
+            required: ['category','key','content'],
           },
         },
-        required: ['items'],
       },
+      required: ['items'],
     },
   },
   {
-    type: 'function',
-    function: {
-      name: 'create_task',
-      description: 'Создать конкретную задачу для Claude Code. Вызывай ТОЛЬКО когда нужно что-то реализовать в коде.',
-      parameters: {
-        type: 'object',
-        properties: {
-          task: { type: 'string', description: 'Точное описание что сделать, в каком файле, как проверить' },
-        },
-        required: ['task'],
+    name: 'create_task',
+    description: 'Создать конкретную задачу для Claude Code. Вызывай ТОЛЬКО когда нужно что-то реализовать в коде.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        task: { type: 'string', description: 'Точное описание что сделать, в каком файле, как проверить' },
       },
+      required: ['task'],
     },
   },
 ];
 
-const SYSTEM_PROMPT = (memoryBlock) => `Ты — технический менеджер проекта "еОсакаровка Сервис" (WhatsApp такси-бот, Осакаровка, Казахстан).
+const SYSTEM_PROMPT = (memoryBlock) =>
+`Ты — технический менеджер проекта "еОсакаровка Сервис" (WhatsApp такси-бот, Осакаровка, Казахстан).
 Твой хозяин — Алибек, владелец бота. Пишет по-русски, неформально, с опечатками.
 
 СТЕК: Node.js + Express + PostgreSQL (Supabase) + Green API (WhatsApp) + Groq AI + PM2 на GCP.
-ФАЙЛЫ: src/handlers/ (router, clientHandler, driverHandler, adminHandler), src/modules/ (orderEngine, driverManager, notificationService, addressDetector, tariffEngine, smartReply, voiceRecognizer, weatherService, infoService, timerService), src/db/queries.js.
+ФАЙЛЫ: src/handlers/ (router, clientHandler, driverHandler, adminHandler), src/modules/ (orderEngine, driverManager, notificationService, addressDetector, tariffEngine, smartReply, voiceRecognizer, timerService), src/db/queries/.
 ДЕПЛОЙ: git push → SSH alphadexkz@34.40.3.202 → git pull → pm2 restart osakarovka-bot.
+СУPABASE: project jgnfjawqacmaqhgpsbcj, eu-west-1, RLS отключён.
 
 === ТВОЯ ПАМЯТЬ ===
 ${memoryBlock || '(пусто)'}
@@ -64,84 +59,94 @@ ${memoryBlock || '(пусто)'}
 === ПРАВИЛА ЗАДАЧ ДЛЯ CLAUDE ===
 
 ХОРОШАЯ задача (вызывай create_task):
-- "Добавить тарифы в таблицу tariffs через Supabase SQL: [список тарифов с ценами]"
+- "Добавить тарифы в таблицу tariffs через Supabase SQL: [список с ценами]"
 - "В src/handlers/driverHandler.js строка 155: добавить вывод рейтинга в статистику"
-- "Исправить баг: когда водитель пишет 'статистика' в офлайне — бот молчит. Файл: src/handlers/router.js"
-- "Добавить команду 'отзывы' в clientHandler.js которая показывает последние 5 оценок"
+- "Исправить баг: водитель пишет 'статистика' в офлайне — бот молчит. Файл: router.js"
 
 ПЛОХАЯ задача (НЕ вызывай create_task):
-- "Изучи весь проект" — слишком общее, не задача
-- "Исправь баг с ночным тарифом" — если баг не подтверждён реальной жалобой
-- "Добавь функцию импорта тарифов" — если функция уже существует
-- "Проверь код на ошибки" — Claude уже делал аудит
+- "Изучи весь проект" — слишком общее
+- "Исправь баг с ночным тарифом" — не подтверждён реальной жалобой
+- "Проверь код на ошибки" — аудит уже сделан
 
 КОГДА создавать задачу:
 ✅ Алибек говорит что хочет добавить/изменить/исправить конкретную вещь
 ✅ Алибек описывает что не работает (с примером)
 ✅ Алибек даёт данные для добавления (тарифы, адреса, тексты)
 ❌ Алибек просит "изучить" или "проверить" без конкретики
-❌ Ты не уверён что именно нужно сделать в коде
 
 === ФОРМАТ ===
 - Отвечай коротко, без лишних слов
-- Уточняй если задача непонятна: "Какие именно цены?" "На какой экран жалоба?"
-- Когда даёшь задачу Claude — она должна быть самодостаточной (всё что нужно внутри)`;
+- Уточняй если задача непонятна
+- Задача для Claude должна быть самодостаточной`;
+
+const callClaude = async (messages, system) => {
+  const resp = await fetch(ANTHROPIC_URL, {
+    method: 'POST',
+    headers: {
+      'content-type':    'application/json',
+      'x-api-key':       process.env.ANTHROPIC_API_KEY,
+      'anthropic-version': '2023-06-01',
+      'anthropic-beta':  'prompt-caching-2024-07-31',
+    },
+    body: JSON.stringify({ model: MODEL, max_tokens: 1024, system, messages, tools: TOOLS }),
+  });
+
+  if (!resp.ok) {
+    const err = await resp.text().catch(() => '');
+    throw new Error(`Claude API ${resp.status}: ${err.slice(0, 200)}`);
+  }
+  return resp.json();
+};
 
 const think = async (userMessage, memory, history) => {
-  // Топ-8 записей памяти, 120 символов каждая
-  const topMemory = memory
-    .sort((a, b) => (b.importance || 5) - (a.importance || 5))
-    .slice(0, 8);
-  const memoryBlock = topMemory.length
-    ? topMemory.map(m => `${m.key}: ${m.content.slice(0, 120)}`).join('\n')
+  // Все 50 записей памяти (было: top-8) — caching делает большой контекст дешёвым
+  const memoryBlock = memory.length
+    ? memory
+        .sort((a, b) => (b.importance || 5) - (a.importance || 5))
+        .map(m => `[${m.category}] ${m.key}: ${m.content.slice(0, 200)}`)
+        .join('\n')
     : '';
 
-  // История: только последние 6 сообщений
-  const recentHistory = history.slice(-6);
+  // Системный промпт с cache_control — кешируется 5 минут, последующие вызовы ~90% дешевле
+  const system = [{ type: 'text', text: SYSTEM_PROMPT(memoryBlock), cache_control: { type: 'ephemeral' } }];
 
+  // История: последние 20 сообщений (было: 6)
   const messages = [
-    { role: 'system', content: SYSTEM_PROMPT(memoryBlock) },
-    ...recentHistory.map(h => ({ role: h.role, content: h.content })),
+    ...history.slice(-20).map(h => ({ role: h.role, content: h.content })),
     { role: 'user', content: userMessage },
   ];
 
-  const first = await getGroq().chat.completions.create({
-    model: 'llama-3.3-70b-versatile',
-    messages,
-    tools: TOOLS,
-    tool_choice: 'auto',
-    max_tokens: 1000,
-    temperature: 0.6,
-  });
+  const first = await callClaude(messages, system);
 
-  const assistantMsg = first.choices[0].message;
-  const toolCalls = assistantMsg.tool_calls || [];
-
+  const toolUseBlocks = first.content.filter(b => b.type === 'tool_use');
   let claudeTask = null;
   const memoriesToSave = [];
 
-  for (const tc of toolCalls) {
-    try {
-      const args = JSON.parse(tc.function.arguments);
-      if (tc.function.name === 'save_memory') memoriesToSave.push(...(args.items || []));
-      if (tc.function.name === 'create_task') claudeTask = args.task;
-    } catch(e) { console.error('[llm] tool parse error:', e.message); }
+  for (const block of toolUseBlocks) {
+    if (block.name === 'save_memory') memoriesToSave.push(...(block.input.items || []));
+    if (block.name === 'create_task') claudeTask = block.input.task;
   }
 
-  let reply = assistantMsg.content || '';
+  let reply = first.content.filter(b => b.type === 'text').map(b => b.text).join('').trim();
 
-  if (toolCalls.length) {
-    const second = await getGroq().chat.completions.create({
-      model: 'llama-3.3-70b-versatile',
-      messages: [
+  // Если были tool_use — второй вызов для текстового ответа
+  if (toolUseBlocks.length > 0) {
+    const toolResults = toolUseBlocks.map(b => ({
+      type: 'tool_result',
+      tool_use_id: b.id,
+      content: 'OK',
+    }));
+
+    const second = await callClaude(
+      [
         ...messages,
-        assistantMsg,
-        ...toolCalls.map(tc => ({ role: 'tool', tool_call_id: tc.id, content: 'OK' })),
+        { role: 'assistant', content: first.content },
+        { role: 'user',      content: toolResults },
       ],
-      max_tokens: 300,
-      temperature: 0.6,
-    });
-    reply = second.choices[0].message.content || '';
+      system
+    );
+
+    reply = second.content.filter(b => b.type === 'text').map(b => b.text).join('').trim();
   }
 
   return { reply, claudeTask, memoriesToSave };
