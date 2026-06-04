@@ -1,5 +1,6 @@
 const cron = require('node-cron');
 const { execFile } = require('child_process');
+const fs   = require('fs');
 const path = require('path');
 const db = require('../db/index');
 const q = require('../db/queries');
@@ -9,6 +10,43 @@ const config = require('../config');
 // orderEngine импортируется здесь безопасно: timerService → orderEngine → нет timerService
 const orderEngine = require('./orderEngine');
 const driverMgr = require('./driverManager');
+
+let _errLogSize = 0; // отслеживает рост errors.log
+
+// ─── Мониторинг ──────────────────────────────────────────────
+
+// Спайк ошибок: errors.log вырос >5 KB за 5 мин
+const checkErrorSpike = async () => {
+  const adminPhone = await q.getSetting('admin_phone').catch(() => null);
+  if (!adminPhone) return;
+  const logFile = path.join(__dirname, '../../logs/errors.log');
+  try {
+    const size = fs.statSync(logFile).size;
+    const prev = _errLogSize;
+    _errLogSize = size;
+    if (prev > 0 && size - prev > 5 * 1024) {
+      await wa.sendText(adminPhone,
+        `⚠️ *Ошибки в боте!*\n\nЛог вырос на ${Math.round((size-prev)/1024)} KB за 5 мин.\n\n` +
+        '`tail -50 ~/osakarovka-bot/logs/errors.log`'
+      ).catch(() => {});
+    }
+  } catch {}
+};
+
+// Тишина: нет заказов >2 ч в рабочее время → возможная проблема с Green API
+const checkSilence = async () => {
+  const adminPhone = await q.getSetting('admin_phone').catch(() => null);
+  if (!adminPhone) return;
+  const r = await db.query(
+    `SELECT COUNT(*) AS cnt FROM orders WHERE created_at > NOW() - INTERVAL '2 hours'`
+  ).catch(() => null);
+  if (!r) return;
+  if (parseInt(r.rows[0]?.cnt || 0) === 0) {
+    await wa.sendText(adminPhone,
+      `🔕 *2 часа без заказов*\n\nВозможно клиенты не достигают бота.\nПроверьте Green API инстанс или WhatsApp соединение.`
+    ).catch(() => {});
+  }
+};
 
 // ─── Вспомогательные функции каждые 5 мин ────────────────────
 
@@ -172,12 +210,18 @@ const start = () => {
     try { await checkArriveWarnings(); } catch (e) { console.error('[Timer/arrive_warnings]', e.message); }
   })
 
-  // Каждые 5 мин — четыре задачи в одном расписании
+  // Каждые 5 мин — основные задачи + мониторинг ошибок
   cron.schedule('*/5 * * * *', async () => {
     try { await checkStuckOrders(); }    catch(e) { console.error('[Timer/stuck_orders]', e.message); }
     try { await checkInactiveDrivers(); } catch(e) { console.error('[Timer/auto_offline]', e.message); }
     try { await warnInactiveDrivers(); }  catch(e) { console.error('[Timer/inactivity_warn]', e.message); }
     try { await q.cleanupMessageDedup(); } catch(e) {}
+    try { await checkErrorSpike(); }      catch(e) { console.error('[Timer/error_spike]', e.message); }
+  });
+
+  // Каждые 2 ч в рабочее время (9-21) — нет заказов → проверить Green API
+  cron.schedule('0 9,11,13,15,17,19,21 * * *', async () => {
+    try { await checkSilence(); } catch(e) { console.error('[Timer/silence]', e.message); }
   });
 
   // Каждый час — уведомление водителям кто давно ждёт без заказов

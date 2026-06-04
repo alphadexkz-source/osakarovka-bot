@@ -246,6 +246,18 @@ const server = app.listen(config.PORT, async () => {
   await recoverOnStartup();
   startTimers();
 
+  // Уведомление админу о рестарте (cooldown 10 мин — защита от crash-loop спама)
+  q.getSetting('admin_phone').then(async (adminPhone) => {
+    if (!adminPhone) return;
+    const lastNotif = await q.getSetting('last_restart_notif').catch(() => null);
+    if (lastNotif && Date.now() - new Date(lastNotif).getTime() < 10 * 60 * 1000) return;
+    await q.setSetting('last_restart_notif', new Date().toISOString());
+    const t = new Date().toLocaleString('ru-RU', { timeZone: 'Asia/Almaty' });
+    await wa.sendText(adminPhone,
+      `🔄 *Бот перезапущен*\n\n⏰ ${t}\n📌 v${BOT_VERSION}\n\n✅ Работает нормально.`
+    ).catch(() => {});
+  }).catch(() => {});
+
   // Предупреждение если тарифов нет
   db.query('SELECT COUNT(*) AS cnt FROM tariffs WHERE is_active=TRUE').then(r => {
     const cnt = parseInt(r.rows[0]?.cnt || 0);
