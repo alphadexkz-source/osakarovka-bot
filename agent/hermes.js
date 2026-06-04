@@ -83,7 +83,7 @@ const monitorBot = async () => {
 
     // Запоминаем важное
     for (const item of (decision.remember || [])) {
-      await memory.remember('learning', null, item, 6, 'monitor');
+      await memory.remember('learning', item.slice(0, 50), item, 6);
     }
 
     // Если нужен Claude для сложного анализа

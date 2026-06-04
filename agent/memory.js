@@ -12,13 +12,13 @@ const db = new Pool({
 // ─── ДОЛГОСРОЧНАЯ ПАМЯТЬ ──────────────────────────────────────
 
 // Сохранить/обновить факт в памяти
-const remember = async (category, key, content, importance = 5) => {
+const remember = async (category, key, content, importance = 5, source = 'agent') => {
   await db.query(
     `INSERT INTO agent_memory(category, key, content, importance, source)
-     VALUES($1,$2,$3,$4,'agent')
+     VALUES($1,$2,$3,$4,$5)
      ON CONFLICT(category, key)
-     DO UPDATE SET content=EXCLUDED.content, importance=EXCLUDED.importance, updated_at=NOW()`,
-    [category, key.slice(0, 200), content.slice(0, 2000), importance]
+     DO UPDATE SET content=EXCLUDED.content, importance=EXCLUDED.importance, source=EXCLUDED.source, updated_at=NOW()`,
+    [category, String(key).slice(0, 200), String(content).slice(0, 2000), importance, source]
   );
 };
 
@@ -98,4 +98,51 @@ const getRecentTasks = async (limit = 10) => {
   return r.rows;
 };
 
-module.exports = { remember, getAll, search, forget, addMessage, getHistory, saveTask, getRecentTasks, db };
+// Создать задачу мониторинга, вернуть id
+const logTask = async (type, description) => {
+  const r = await db.query(
+    `INSERT INTO agent_tasks(type, description, status) VALUES($1, $2, 'pending') RETURNING id`,
+    [type.slice(0, 50), description.slice(0, 4000)]
+  );
+  return r.rows[0]?.id;
+};
+
+// Завершить задачу мониторинга
+const completeTask = async (taskId, result, success = true) => {
+  if (!taskId) return;
+  await db.query(
+    `UPDATE agent_tasks SET status=$1, result=$2, completed_at=NOW() WHERE id=$3`,
+    [success ? 'completed' : 'failed', String(result).slice(0, 2000), taskId]
+  );
+};
+
+// Критические записи (важность >= 8 или категория alert)
+const getCritical = async () => {
+  const r = await db.query(
+    `SELECT category, key, content, importance FROM agent_memory
+     WHERE (importance >= 8 OR category = 'alert')
+       AND (expires_at IS NULL OR expires_at > NOW())
+     ORDER BY importance DESC LIMIT 20`
+  );
+  return r.rows;
+};
+
+// Статистика памяти
+const stats = async () => {
+  const r = await db.query(
+    `SELECT
+       (SELECT COUNT(*) FROM agent_memory) AS memory_count,
+       (SELECT COUNT(*) FROM agent_conversations) AS conversation_count,
+       (SELECT COUNT(*) FROM agent_tasks) AS task_count,
+       (SELECT COUNT(*) FROM agent_tasks WHERE status='pending') AS pending_tasks`
+  );
+  return r.rows[0] || {};
+};
+
+module.exports = {
+  remember, getAll, search, forget,
+  addMessage, getHistory,
+  saveTask, getRecentTasks, logTask, completeTask,
+  getCritical, stats,
+  db,
+};
