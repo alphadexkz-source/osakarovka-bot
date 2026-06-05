@@ -14,6 +14,12 @@ const getTimeOfDay = () => {
   return                        { key:'night',   ru:'ночь',  greeting_ru:'Доброй ночи',  greeting_kz:'Қайырлы түн'  };
 };
 
+// Первая буква заглавная для каждого слова — на случай если в БД сохранено строчными
+const fmt = (name) => {
+  if (!name || name === 'Клиент' || name === 'Пользователь') return '';
+  return name.split(/\s+/).map(w => w ? w[0].toUpperCase() + w.slice(1) : '').join(' ').trim();
+};
+
 const detectLanguage = (text) => {
   if (!text) return 'ru';
   const kzWords = ['сәлем','салем','қайырлы','рахмет','жақсы','иә','жоқ','қайда','үйге','жұмыс','мектеп','дүкен','аурухана','болыңыз'];
@@ -29,17 +35,17 @@ const isCleanText = (text) => {
 
 // ─── СТАТИЧЕСКИЕ ШАБЛОНЫ (резерв при сбое Groq) ───────────────
 const STATIC_GREET = {
-  morning: (name) => `☀️ Доброе утро, ${name}! Куда едем сегодня? 🚖`,
-  day:     (name) => `👋 Добрый день, ${name}! Напишите куда нужно — найдём водителя. 🚖`,
-  evening: (name) => `🌆 Добрый вечер, ${name}! Куда везти? 🚖`,
-  night:   (name) => `🌙 Ночной рейс, ${name}? Напишите адрес — водитель найдётся! 🚖`,
+  morning: (n) => `☀️ Доброе утро${n ? ', ' + n : ''}! Куда едем? 🚖`,
+  day:     (n) => `👋 Добрый день${n ? ', ' + n : ''}! Напишите куда нужно — найдём водителя. 🚖`,
+  evening: (n) => `🌆 Добрый вечер${n ? ', ' + n : ''}! Куда везти? 🚖`,
+  night:   (n) => `🌙 Доброй ночи${n ? ', ' + n : ''}! Напишите адрес — водитель найдётся. 🚖`,
 };
 
 const STATIC_GREET_LOYAL = {
-  morning: (name, n)  => `☀️ Доброе утро, ${name}! Уже ${n} поездок — вы постоянный клиент 😊\nКуда сегодня? 🚖`,
-  day:     (name, n)  => `👋 Добрый день, ${name}! ${n} поездок с нами — спасибо за доверие! Куда едем? 🚖`,
-  evening: (name)     => `🌆 Добрый вечер, ${name}! Рады видеть. Куда везти? 🚖`,
-  night:   (name)     => `🌙 Доброй ночи, ${name}! Куда нужно? Напишите адрес. 🚖`,
+  morning: (n, cnt)  => `☀️ Доброе утро${n ? ', ' + n : ''}! ${cnt} поездок с нами — спасибо 😊 Куда сегодня? 🚖`,
+  day:     (n, cnt)  => `👋 Добрый день${n ? ', ' + n : ''}! ${cnt} поездок — вы наш постоянный клиент 😊 Куда едем? 🚖`,
+  evening: (n, _cnt) => `🌆 Добрый вечер${n ? ', ' + n : ''}! Рады видеть снова. Куда везти? 🚖`,
+  night:   (n, _cnt) => `🌙 Доброй ночи${n ? ', ' + n : ''}! Куда нужно? Напишите адрес. 🚖`,
 };
 
 const STATIC_NEW_RU = (name, greeting) =>
@@ -61,9 +67,10 @@ const newClientGreeting = async (name, firstText) => {
   const lang = detectLanguage(firstText);
   const weather = await getWeather().catch(() => null);
   const weatherStr = formatWeatherForGroq(weather);
+  const displayName = fmt(name);
   const staticFallback = lang === 'kz'
-    ? STATIC_NEW_KZ(name, tod.greeting_kz)
-    : STATIC_NEW_RU(name, tod.greeting_ru);
+    ? STATIC_NEW_KZ(displayName, tod.greeting_kz)
+    : STATIC_NEW_RU(displayName, tod.greeting_ru);
 
   try {
     const r = await getGroq().chat.completions.create({
@@ -72,7 +79,7 @@ const newClientGreeting = async (name, firstText) => {
         content: SYSTEM_CONTEXT + `\n\nНовый клиент пишет ПЕРВЫЙ РАЗ. Напиши приветствие + краткую инструкцию.
 ВРЕМЯ: ${tod.ru}
 ЯЗЫК: ${lang === 'kz' ? 'казахский' : 'русский'}
-ИМЯ: ${name}
+ИМЯ: ${displayName || 'Клиент'}
 ${weatherStr ? 'ВАЖНАЯ ПОГОДА: ' + weatherStr : ''}
 
 ОБЯЗАТЕЛЬНО ВКЛЮЧИ:
@@ -105,11 +112,12 @@ const dailyGreeting = async (name, firstText, tripCount) => {
   const weatherStr = formatWeatherForGroq(weather);
   const nextFree = 10 - (tripCount % 10);
   const isLoyal = tripCount >= 3;
+  const displayName = fmt(name);
 
   // Статический fallback — всегда гарантированно чистый
   const staticFallback = isLoyal
-    ? (STATIC_GREET_LOYAL[tod.key] || STATIC_GREET_LOYAL.day)(name, tripCount)
-    : (STATIC_GREET[tod.key] || STATIC_GREET.day)(name);
+    ? (STATIC_GREET_LOYAL[tod.key] || STATIC_GREET_LOYAL.day)(displayName, tripCount)
+    : (STATIC_GREET[tod.key] || STATIC_GREET.day)(displayName);
 
   // Дополнительный контекст для Groq
   const topics = [
@@ -126,17 +134,17 @@ const dailyGreeting = async (name, firstText, tripCount) => {
         content: SYSTEM_CONTEXT + `\n\nПоприветствуй вернувшегося клиента — сегодня написал впервые.
 ВРЕМЯ: ${tod.ru} (${tod.greeting_ru})
 ЯЗЫК: ${lang === 'kz' ? 'казахский' : 'русский'}
-ИМЯ: ${name}
+ИМЯ: ${displayName || 'Клиент'}
 ${topic ? 'ЧТО УПОМЯНУТЬ: ' + topic : 'Просто тёплое, короткое приветствие'}
 
 СТРОГИЕ ПРАВИЛА:
-- ТОЛЬКО ${lang === 'kz' ? 'казахский' : 'русский'} язык — НОЛЬ иностранных слов любого другого языка
-- Ровно 1-2 предложения
-- 1-2 уместных эмодзи
-- В конце намекни написать адрес
+- ТОЛЬКО ${lang === 'kz' ? 'казахский' : 'русский'} язык — НОЛЬ иностранных слов
+- Ровно 1-2 предложения, 1-2 эмодзи
+- В конце ОБЯЗАТЕЛЬНО используй одну из фраз: "Куда едем?", "Куда везти?", "Напишите адрес", "Куда нужно?"
+- ЗАПРЕЩЕНО писать: "Где вас подвезти", "Где вас подвести", "Куда вас подвезти"
 - Каждый раз новый вариант, не шаблонно
 - ${weatherStr ? 'Упомяни погоду — она важная' : 'Погоду не упоминай'}`
-      }, { role: 'user', content: `Клиент ${name} написал: "${firstText}"` }],
+      }, { role: 'user', content: `Клиент ${displayName || 'Клиент'} написал: "${firstText}"` }],
       model: 'llama-3.3-70b-versatile', max_tokens: 100, temperature: 0.9,
     });
     const result = r.choices[0]?.message?.content?.trim();

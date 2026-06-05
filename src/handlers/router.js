@@ -34,7 +34,11 @@ const parse = (body) => {
   if (!senderData?.sender || !messageData) return null;
   const phone = senderData.sender.replace('@c.us', '');
   if (senderData.sender.includes('@g.us')) return null;
-  const name = String(senderData.senderName || 'Пользователь').slice(0, 100);
+  // Капитализируем каждое слово: "рус иванов" → "Рус Иванов"
+  const rawName = String(senderData.senderName || '').trim().slice(0, 100);
+  const name = rawName
+    ? rawName.split(/\s+/).map(w => w ? w[0].toUpperCase() + w.slice(1) : '').join(' ')
+    : 'Пользователь';
   let type = 'text', text = '', buttonId = null, mediaUrl = null;
   switch (messageData.typeMessage) {
     case 'textMessage':

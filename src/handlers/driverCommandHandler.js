@@ -35,25 +35,26 @@ const clearBreakTimer = (phone) => {
 
 // Обрабатывает команды кнопок водителя (не заказ). Возвращает true если обработал.
 const handleCommandButtons = async (phone, buttonId) => {
-  if (buttonId === 'order_as_client') { await q.setSession(phone, 'driver_as_client', {}); await wa.sendText(phone, 'Куда нужно ехать?'); return true }
+  if (buttonId === 'order_as_client') { await q.setSession(phone, 'driver_as_client', {}); await wa.sendText(phone, '🚖 Куда нужно ехать?'); return true }
   if (buttonId === 'go_online') {
     clearBreakTimer(phone)
     await q.clearSession(phone)
     const r = await driverMgr.goOnline(phone)
-    if (r.error === 'no_balance') { await wa.sendText(phone, 'Баланс = 0.'); return true }
+    if (r.error === 'no_balance') { await wa.sendText(phone, '🔴 Ваш баланс заказов исчерпан.\nОбратитесь к администратору для пополнения.'); return true }
+    if (r.error === 'blocked')    { await wa.sendText(phone, '🚫 Ваш аккаунт заблокирован. Обратитесь к администратору.'); return true }
     const pos = await q.getDriverQueuePosition(phone)
     const cnt = (await q.getOnlineDriversQueue()).length
-    await wa.sendButtons(phone, 'На линии! ' + pos + '-й из ' + cnt, [{ id:'go_offline', text:'Уйти с линии' }])
+    await wa.sendButtons(phone, '🟢 *Вы на линии!*\n📋 Позиция: *' + pos + '-й* из *' + cnt + '* водителей.\n\nОжидайте заказы!', [{ id:'go_offline', text:'⚫ Уйти с линии' }])
     return true
   }
   if (buttonId === 'go_offline') {
     await driverMgr.goOffline(phone)
-    await wa.sendButtons(phone, 'Ушли с линии.', [{ id:'go_online', text:'Выйти на линию' }, { id:'order_as_client', text:'Заказать такси' }])
+    await wa.sendButtons(phone, '⚫ *Вы ушли с линии.*\n\nОтдыхайте! Напишите *"на линию"* когда будете готовы.', [{ id:'go_online', text:'🟢 Выйти на линию' }, { id:'order_as_client', text:'🚖 Заказать такси' }])
     return true
   }
-  if (buttonId === 'edit_name')  { await q.setSession(phone, 'edit_name', {}); await wa.sendText(phone, 'Введите новое ФИО:'); return true }
-  if (buttonId === 'edit_car')   { await q.setSession(phone, 'edit_car', {}); await wa.sendText(phone, 'Введите марку и номер:'); return true }
-  if (buttonId === 'edit_photo') { await q.setSession(phone, 'edit_photo', {}); await wa.sendText(phone, 'Отправьте фото:'); return true }
+  if (buttonId === 'edit_name')  { await q.setSession(phone, 'edit_name', {}); await wa.sendText(phone, '✏️ Введите ваше полное имя (ФИО):'); return true }
+  if (buttonId === 'edit_car')   { await q.setSession(phone, 'edit_car', {}); await wa.sendText(phone, '✏️ Введите марку и номер через запятую:\nНапример: *Kia Rio, A123BC*'); return true }
+  if (buttonId === 'edit_photo') { await q.setSession(phone, 'edit_photo', {}); await wa.sendText(phone, '📷 Отправьте фото автомобиля:'); return true }
   return false
 }
 
