@@ -63,7 +63,7 @@ const driverNewOrder = async (phone, order) => {
   const destLine = order.is_intercity ? '\n🏁 Везти: *' + order.destination + '*' : '\n📍 Куда: *' + order.destination + '*';
   const intercityMark = order.is_intercity ? '\n🚗 *МЕЖГОРОД*' : '';
   return wa.sendButtons(phone,
-    '🚖 *НОВЫЙ ЗАКАЗ!*' + intercityMark + pickupLine + destLine + '\n💰 Цена: *' + order.price + ' тг*\n👤 ' + (order.client_name||'Клиент') + '\n\n⏱ *60 секунд* на решение\n\n✅ *принял* — принять заказ\n⏭ *пропустить* — передать следующему\n🚫 *ложный* — если приехали, а клиента нет (штраф клиенту *250 тг*)',
+    '🚖 *НОВЫЙ ЗАКАЗ!*' + intercityMark + pickupLine + destLine + '\n💰 Цена: *' + order.price + ' тг*\n👤 ' + (order.client_name||'Клиент') + '\n\n⏱ *40 секунд* на решение\n\n✅ *принял* — принять заказ\n⏭ *пропустить* — передать следующему\n🚫 *ложный* — если приехали, а клиента нет (штраф клиенту *250 тг*)',
     [{ id:`accept_${order.id}`, text:'✅ Принять' }, { id:`skip_${order.id}`, text:'⏭ Пропустить' }]
   );
 };

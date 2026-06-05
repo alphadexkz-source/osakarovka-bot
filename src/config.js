@@ -1,7 +1,7 @@
 require('dotenv').config();
 
-if (!process.env.ADMIN_PIN || !process.env.DRIVER_CODE) {
-  console.error('[Config] КРИТИЧНО: ADMIN_PIN и DRIVER_CODE обязательны в .env');
+if (!process.env.ADMIN_PIN || !process.env.DRIVER_CODE || !process.env.WEBHOOK_SECRET) {
+  console.error('[Config] КРИТИЧНО: ADMIN_PIN, DRIVER_CODE и WEBHOOK_SECRET обязательны в .env');
   process.exit(1);
 }
 
@@ -9,7 +9,7 @@ module.exports = {
   // Green API
   INSTANCE_ID:    process.env.GREEN_API_ID,
   API_TOKEN:      process.env.GREEN_API_TOKEN,
-  WEBHOOK_SECRET: process.env.WEBHOOK_SECRET || '',
+  WEBHOOK_SECRET: process.env.WEBHOOK_SECRET,
 
   // Database
   DATABASE_URL:  process.env.DATABASE_URL,

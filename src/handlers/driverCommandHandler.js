@@ -44,7 +44,11 @@ const handleCommandButtons = async (phone, buttonId) => {
     if (r.error === 'blocked')    { await wa.sendText(phone, '🚫 Ваш аккаунт заблокирован. Обратитесь к администратору.'); return true }
     const pos = await q.getDriverQueuePosition(phone)
     const cnt = (await q.getOnlineDriversQueue()).length
-    await wa.sendButtons(phone, '🟢 *Вы на линии!*\n📋 Позиция: *' + pos + '-й* из *' + cnt + '* водителей.\n\nОжидайте заказы!', [{ id:'go_offline', text:'⚫ Уйти с линии' }])
+    const freshDriver = await q.getDriver(phone)
+    const bal = freshDriver?.order_balance ?? 0
+    const balWarn = (bal > 0 && bal < 999999 && bal <= 5)
+      ? `\n⚠️ Баланс: *${bal} заказов*. Пополните заранее!` : ''
+    await wa.sendButtons(phone, '🟢 *Вы на линии!*\n📋 Позиция: *' + pos + '-й* из *' + cnt + '* водителей.\n\nОжидайте заказы!' + balWarn, [{ id:'go_offline', text:'⚫ Уйти с линии' }])
     return true
   }
   if (buttonId === 'go_offline') {
@@ -82,7 +86,11 @@ const handleCommand = async (phone, lo, driver, session) => {
     if (r.error === 'in_trip')    { await wa.sendText(phone, '🚗 Вы сейчас в поездке.'); return }
     const pos = await q.getDriverQueuePosition(phone)
     const cnt = (await q.getOnlineDriversQueue()).length
-    await wa.sendButtons(phone, '🟢 *Вы на линии!*\n📋 Позиция: *' + pos + '-й* из *' + cnt + '* водителей.\n\nОжидайте заказы!', [{ id:'go_offline', text:'⚫ Уйти с линии' }])
+    const freshDriver = await q.getDriver(phone)
+    const bal = freshDriver?.order_balance ?? 0
+    const balWarn = (bal > 0 && bal < 999999 && bal <= 5)
+      ? `\n⚠️ Баланс: *${bal} заказов*. Пополните заранее!` : ''
+    await wa.sendButtons(phone, '🟢 *Вы на линии!*\n📋 Позиция: *' + pos + '-й* из *' + cnt + '* водителей.\n\nОжидайте заказы!' + balWarn, [{ id:'go_offline', text:'⚫ Уйти с линии' }])
     return
   }
 

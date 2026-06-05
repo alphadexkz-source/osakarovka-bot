@@ -41,12 +41,14 @@ const login = async (phone, text) => {
 const adminMenu = () =>
   `👨‍💼 *Панель администратора*\n\n` +
   `📋 *Тарифы:* Тарифы | Добавить тариф | Изменить тариф | Удалить тариф\n\n` +
-  `👥 *Водители:* Водители | Баланс +50 79001234567 | Блок водитель 79001234567\n\n` +
+  `👥 *Водители:* Водители | Баланс +50 79001234567 | Блок водитель 79001234567 | Сбросить рейтинг 79001234567\n\n` +
   `📊 *Статистика:* Статистика | Неделя | Месяц | Топ водителей\n\n` +
+  `🚖 *Заказы:* Активные заказы\n\n` +
+  `👤 *Клиент:* Клиент 79001234567\n\n` +
   `📢 *Рассылка:* Рассылка клиенты [текст] | Рассылка водители [текст]\n\n` +
   `🚫 *ЧС:* Блок 79001234567 | Разблок 79001234567\n\n` +
   `⚙️ *Режим:* Режим очередь | Режим первый\n\n` +
-  `🎁 *Акции:* Акции | Реферал вкл/выкл | Лояльность вкл/выкл\n\n` +
+  `🎁 *Акции:* Акции | Лояльность вкл/выкл\n\n` +
   `*Выход* — выйти из панели`;
 
 const handle = async (phone, msg, session) => {
@@ -131,6 +133,48 @@ const handle = async (phone, msg, session) => {
       const target = text.split(/\s+/).pop().replace(/\D/g, '');
       await q.blacklistDriver(target, false);
       await wa.sendText(phone, `✅ Водитель ${target} разблокирован.`);
+      return;
+    }
+    if (lo.startsWith('сбросить рейтинг')) {
+      const target = text.split(/\s+/).pop().replace(/\D/g, '');
+      if (!target) { await wa.sendText(phone, '❌ Формат: *Сбросить рейтинг 79001234567*'); return; }
+      await q.resetDriverRating(target);
+      await wa.sendText(phone, `✅ Рейтинг водителя ${target} сброшен до ⭐5.0`);
+      return;
+    }
+
+    // ── АКТИВНЫЕ ЗАКАЗЫ ───────────────────────────────────────
+    if (lo === 'активные заказы') {
+      const orders = await q.getActiveOrders();
+      if (!orders.length) { await wa.sendText(phone, '✅ Активных заказов нет.'); return; }
+      const STATUS_ICON = { searching:'🟡', accepted:'🟢', arrived:'🚗', in_trip:'🛣' };
+      const lines = orders.map(o => {
+        const icon = STATUS_ICON[o.status] || '⬜';
+        const mins = Math.round((Date.now() - new Date(o.created_at)) / 60000);
+        const drv = o.driver_name ? ` · ${o.driver_name}` : '';
+        const intercity = o.is_intercity ? ' 🚗МГ' : '';
+        return `${icon} #${o.id}${intercity} *${o.destination}* — ${o.price} тг · ${o.client_name}${drv} (${mins} мин)`;
+      }).join('\n');
+      await wa.sendText(phone, `🚖 *Активные заказы (${orders.length}):*\n\n${lines}`);
+      return;
+    }
+
+    // ── КЛИЕНТ ПОИСК ──────────────────────────────────────────
+    if (lo.startsWith('клиент ')) {
+      const target = text.split(/\s+/)[1]?.replace(/\D/g, '');
+      if (!target) { await wa.sendText(phone, '❌ Формат: *Клиент 79001234567*'); return; }
+      const c = await q.getClientStats(target);
+      if (!c) { await wa.sendText(phone, `❌ Клиент ${target} не найден.`); return; }
+      const lastTrip = c.last_trip ? new Date(c.last_trip).toLocaleDateString('ru-RU') : 'нет';
+      const status = c.is_blacklisted ? '🚫 Заблокирован' : '✅ Активен';
+      await wa.sendText(phone,
+        `👤 *${c.name || 'Без имени'}*\n` +
+        `📱 ${c.phone}\n` +
+        `🚖 Поездок: *${c.trip_count}* (завершено: ${c.completed})\n` +
+        `💰 Потрачено: *${Number(c.spent).toLocaleString()} тг*\n` +
+        `📅 Последняя: *${lastTrip}*\n` +
+        `${status}`
+      );
       return;
     }
 

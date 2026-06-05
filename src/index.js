@@ -70,8 +70,8 @@ app.post('/webhook', async (req, res) => {
     const body = req.body;
     if (!body || typeof body !== 'object') return;
 
-    // Проверяем secret token (если задан в .env как WEBHOOK_SECRET)
-    if (config.WEBHOOK_SECRET && req.query.token !== config.WEBHOOK_SECRET) {
+    // Проверяем secret token
+    if (req.query.token !== config.WEBHOOK_SECRET) {
       console.warn('[Webhook] Отклонён — неверный token');
       return;
     }

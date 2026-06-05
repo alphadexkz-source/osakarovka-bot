@@ -190,6 +190,14 @@ const getExpiredBreaks = async () => {
   return r.rows
 }
 
+const resetDriverRating = async (phone) => {
+  await db.query(
+    `UPDATE drivers SET rating=5.0, skip_next=false
+     WHERE user_id=(SELECT id FROM users WHERE phone=$1)`,
+    [phone]
+  )
+}
+
 module.exports = {
   getDriver,
   getDriverById,
@@ -204,6 +212,7 @@ module.exports = {
   deductDriverBalance,
   addDriverBalance,
   updateDriverRating,
+  resetDriverRating,
   updateDriverActivity,
   getInactiveDrivers,
   getLongWaitDrivers,

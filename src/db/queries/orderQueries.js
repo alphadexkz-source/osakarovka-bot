@@ -249,6 +249,35 @@ const getFalseCallCount = async (clientId) => {
   return parseInt(r.rows[0]?.cnt || 0)
 }
 
+const getActiveOrders = async () => {
+  const r = await db.query(
+    `SELECT o.id, o.status, o.destination, o.price, o.is_intercity, o.created_at,
+            u.phone AS client_phone, u.name AS client_name,
+            d.full_name AS driver_name
+     FROM orders o
+     JOIN users u ON u.id = o.client_id
+     LEFT JOIN drivers d ON d.id = o.driver_id
+     WHERE o.status NOT IN ('completed','cancelled','scheduled')
+     ORDER BY o.created_at DESC`
+  )
+  return r.rows
+}
+
+const getClientStats = async (phone) => {
+  const r = await db.query(
+    `SELECT u.phone, u.name, u.trip_count, u.is_blacklisted,
+            COUNT(o.id) FILTER(WHERE o.status='completed') AS completed,
+            COALESCE(SUM(o.price) FILTER(WHERE o.status='completed'),0) AS spent,
+            MAX(o.created_at) FILTER(WHERE o.status='completed') AS last_trip
+     FROM users u
+     LEFT JOIN orders o ON o.client_id = u.id
+     WHERE u.phone = $1
+     GROUP BY u.id, u.phone, u.name, u.trip_count, u.is_blacklisted`,
+    [phone]
+  )
+  return r.rows[0] || null
+}
+
 module.exports = {
   createOrder,
   getOrder,
@@ -272,4 +301,6 @@ module.exports = {
   getFalseCallCount,
   getScheduledOrdersDue,
   getScheduledOrdersSoon,
+  getActiveOrders,
+  getClientStats,
 }
