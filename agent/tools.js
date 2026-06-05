@@ -130,9 +130,37 @@ const writeFile = async (filePath, content) => {
   }
 };
 
+// ─── WHATSAPP АЛЕРТ АДМИНИСТРАТОРУ ───────────────────────────
+const sendAlert = async (message) => {
+  try {
+    const r = await queryDB(`SELECT value FROM settings WHERE key='admin_phone'`)
+    const adminPhone = r.rows?.[0]?.value
+    if (!adminPhone) return { ok: false, error: 'admin_phone не задан в settings' }
+
+    const instanceId = process.env.GREEN_API_ID
+    const token = process.env.GREEN_API_TOKEN
+    if (!instanceId || !token) return { ok: false, error: 'GREEN_API не настроен' }
+
+    const chatId = adminPhone.replace(/\D/g, '') + '@c.us'
+    const res = await fetch(
+      `https://api.green-api.com/waInstance${instanceId}/sendMessage/${token}`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ chatId, message: `🤖 *Hermes Alert*\n\n${message}` }),
+        signal: AbortSignal.timeout(10000),
+      }
+    )
+    return { ok: res.ok }
+  } catch (e) {
+    return { ok: false, error: e.message }
+  }
+}
+
 module.exports = {
   ssh, getLogs, getErrors, getBotStatus, restartBot, deployBot,
   queryDB, getBotStats,
   askClaude, askGroq,
   readFile, writeFile,
+  sendAlert,
 };

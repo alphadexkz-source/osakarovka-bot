@@ -96,10 +96,13 @@ const monitorBot = async () => {
       console.log(`[${AGENT_NAME}] Claude ответил:`, claudeAnalysis.slice(0, 200));
     }
 
-    // Алерт если критично — стабильный ключ чтобы не спамить БД
+    // Алерт если критично — пишем в БД И отправляем WhatsApp администратору
     if (decision.alert) {
       await memory.remember('alert', 'alert_current', decision.alert, 10, 'monitor');
       console.log(`[${AGENT_NAME}] ⚠️ АЛЕРТ: ${decision.alert}`);
+      const alertResult = await tools.sendAlert(decision.alert).catch(e => ({ ok: false, error: e.message }));
+      if (!alertResult.ok) console.log(`[${AGENT_NAME}] WhatsApp alert failed: ${alertResult.error}`);
+      else console.log(`[${AGENT_NAME}] WhatsApp alert отправлен администратору`);
     }
 
     await memory.completeTask(taskId, decision.actions?.join('; ') || 'OK');
