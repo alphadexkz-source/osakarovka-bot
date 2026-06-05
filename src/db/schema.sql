@@ -177,4 +177,5 @@ ON CONFLICT (key) DO NOTHING;
 -- Межгородские поля
 ALTER TABLE orders ADD COLUMN IF NOT EXISTS pickup_address TEXT;
 ALTER TABLE orders ADD COLUMN IF NOT EXISTS scheduled_time TIMESTAMPTZ;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS scheduled_reminder_sent BOOLEAN DEFAULT false;
 ALTER TABLE orders ADD COLUMN IF NOT EXISTS is_intercity BOOLEAN DEFAULT false;
