@@ -242,7 +242,7 @@ PORT=3000
 - Анализирует ситуацию через Qwen3-32b (быстрый, дешёвый LLM)
 - При ошибках в логах — обращается к Claude claude-sonnet-4-6 (`agent/tools.js:askClaude`)
 - Запоминает паттерны в таблице `agent_memory` (важность 1-10)
-- Алерты пишет в `agent_memory` (ключ `alert_current`) + stdout
+- Алерты: пишет в `agent_memory` (ключ `alert_current`) + WhatsApp на `admin_phone`
 
 **CLI команды:**
 ```bash
@@ -251,6 +251,22 @@ node agent/hermes.js ask "вопрос"  # Спросить агента
 node agent/hermes.js memory    # Показать память
 node agent/hermes.js stats     # Статистика бота
 node agent/hermes.js loop      # Непрерывный мониторинг (PM2)
+```
+
+### ⚠️ Известные ложные алерты Hermes
+
+Hermes работает НА том же сервере (GCP e2-micro), поэтому часть алертов — ложные:
+
+| Алерт | Причина | Реальная проблема? |
+|-------|---------|-------------------|
+| "Потеря SSH-доступа" | Hermes пытается `ssh` сам на себя — ключ не настроен для loopback | ❌ Нет, ложный |
+| "Отсутствие тарифов" | Qwen3 неверно интерпретирует PM2-логи при старте | ❌ Нет, проверь `pm2 logs` |
+| "Бот упал" | Может быть реальным — проверь `pm2 list` | ⚠️ Нужно проверить |
+| "Нет заказов X часов" | Может быть реальным в ночное время | ⚠️ Проверь Green API |
+
+**Как проверить реальную ситуацию** при получении алерта:
+```bash
+ssh -i ~/.ssh/google_compute_engine alphadexkz@34.40.3.202 "pm2 list && pm2 logs osakarovka-bot --lines 10 --nostream"
 ```
 
 > Telegram-интерфейс (`agent/index.js`) удалён — не использовался.
@@ -307,8 +323,9 @@ ON CONFLICT(key) DO UPDATE SET value=EXCLUDED.value;
 | TD-06 | `stateMachine.js` мёртвый код — нигде не импортируется | `src/modules/stateMachine.js` |
 | TD-07 | `supabaseClient.js` мёртвый код в `src/lib/` | `src/lib/supabaseClient.js` |
 | TD-08 | Межгород: цена ищется по `destination`, не по маршруту | `clientOrderHandler.js:244` |
-| TD-09 | `_groqCounts` Map в smartReply.js никогда не чистится | `smartReply.js:12` |
+| ~~TD-09~~ | ~~`_groqCounts` Map никогда не чистится~~ | ✅ Исправлено — `_rateLimits` с setInterval |
 | TD-10 | `addressDetector` cache — unbounded Map (нет MAX_SIZE) | `addressDetector.js` |
+| TD-11 | Hermes: ложные алерты (SSH loopback, тарифы) | `agent/hermes.js` — Qwen3 переоценивает |
 
 ---
 
