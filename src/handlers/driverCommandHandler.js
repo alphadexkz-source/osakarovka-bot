@@ -58,7 +58,6 @@ const handleCommandButtons = async (phone, buttonId) => {
   }
   if (buttonId === 'edit_name')  { await q.setSession(phone, 'edit_name', {}); await wa.sendText(phone, '✏️ Введите ваше полное имя (ФИО):'); return true }
   if (buttonId === 'edit_car')   { await q.setSession(phone, 'edit_car', {}); await wa.sendText(phone, '✏️ Введите марку и номер через запятую:\nНапример: *Kia Rio, A123BC*'); return true }
-  if (buttonId === 'edit_photo') { await q.setSession(phone, 'edit_photo', {}); await wa.sendText(phone, '📷 Отправьте фото автомобиля:'); return true }
   return false
 }
 
@@ -150,12 +149,11 @@ const handleCommand = async (phone, lo, driver, session) => {
 
   // ─── ИЗМЕНИТЬ ДАННЫЕ ──────────────────────────────────────────
   if (match(lo, KW.EDIT)) {
-    await wa.sendText(phone, '✏️ *Что изменить?*\n\n*имя* — изменить ФИО\n*авто* — марку и номер\n*фото* — фото авто\n*цвет* — цвет автомобиля')
+    await wa.sendText(phone, '✏️ *Что изменить?*\n\n*имя* — изменить ФИО\n*авто* — марку и номер\n*цвет* — цвет автомобиля')
     return
   }
   if (['имя','фио'].includes(lo))    { await q.setSession(phone, 'edit_name', {}); await wa.sendText(phone, 'Введите новое ФИО:'); return }
   if (['авто','номер'].includes(lo)) { await q.setSession(phone, 'edit_car', {}); await wa.sendText(phone, 'Введите марку и номер через запятую:'); return }
-  if (['фото'].includes(lo))         { await q.setSession(phone, 'edit_photo', {}); await wa.sendText(phone, 'Отправьте фото автомобиля:'); return }
   if (['цвет'].includes(lo))         { await q.setSession(phone, 'edit_color', {}); await wa.sendText(phone, 'Введите цвет автомобиля:'); return }
 
   // ─── ПУСТОЕ СООБЩЕНИЕ → СТАТИСТИКА ───────────────────────────
@@ -300,12 +298,6 @@ const handle = async (phone, msg, session) => {
 
   if (!mediaUrl) {
     await wa.sendText(phone, '🎙 Голосовое не получено. Напишите команду.')
-    return
-  }
-
-  // reg_photo/edit_photo: голос не поддерживается, нужно фото
-  if (state === 'reg_photo' || state === 'edit_photo') {
-    await wa.sendText(phone, '📸 Для этого шага отправьте ФОТО автомобиля.')
     return
   }
 

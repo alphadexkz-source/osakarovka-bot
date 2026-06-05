@@ -39,7 +39,7 @@ const getScheduledOrdersSoon = async (mins) => {
 const getOrder = async (id) => {
   const r = await db.query(
     `SELECT o.*,u.phone AS client_phone,u.name AS client_name,
-       d.id AS driver_id,d.full_name AS driver_name,d.car_make,d.car_plate,d.car_color,d.car_photo_url,
+       d.id AS driver_id,d.full_name AS driver_name,d.car_make,d.car_plate,d.car_color,
        du.phone AS driver_phone
      FROM orders o
      JOIN users u ON o.client_id=u.id

@@ -11,18 +11,28 @@ const clientSearching = async (phone, destination, price, isFree) => {
 };
 
 const clientDriverFound = async (phone, driver) => {
-  const carInfo = driver.car_make ? `${driver.car_make}, ${driver.car_color || '—'}` : 'уточните у водителя';
-  const plate   = driver.car_plate || 'не указан';
-  const msg = `🚗 *Водитель найден!*\n\n👤 ${driver.full_name}\n🚙 ${carInfo}\n🔢 Номер: *${plate}*\n⏱ Прибудет через *3–7 минут*`;
-  if (driver.car_photo_url) await wa.sendImage(phone, driver.car_photo_url, msg);
-  else await wa.sendText(phone, msg);
+  const make  = driver.car_make  || '—';
+  const color = driver.car_color || '—';
+  const plate = driver.car_plate || 'не указан';
+  await wa.sendText(phone,
+    `🚗 *Водитель найден!*\n\n` +
+    `👤 *${driver.full_name}*\n` +
+    `🚙 ${make}, ${color}\n` +
+    `🔢 Номер: *${plate}*\n\n` +
+    `⏱ Едет к вам!`
+  );
   await wa.sendButtons(phone, '⬇️ Ваши действия:', [
     { id: 'chat_driver', text: '💬 Написать водителю' },
     { id: 'cancel_order', text: '❌ Отменить заказ' },
   ]);
 };
 
-const clientArrived  = async (phone) => wa.sendText(phone, `📍 *Водитель прибыл и ждёт вас!*\n\nПожалуйста, выходите. 🙌`);
+const clientArrived = async (phone, driver) => {
+  const carLine = driver?.car_plate
+    ? `\n🚗 *${[driver.car_make, driver.car_color].filter(Boolean).join(', ')}* · Номер: *${driver.car_plate}*`
+    : ''
+  await wa.sendText(phone, `📍 *Водитель прибыл и ждёт вас!*${carLine}\n\nВыходите, пожалуйста! 🙌`)
+};
 const clientInTrip   = async (phone, destination) =>
   wa.sendText(phone, `🚗 *Поездка началась!*\n\n🏁 Едем: *${destination}*\n\nПриятной дороги! 😊`);
 

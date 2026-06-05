@@ -263,8 +263,9 @@ const arrived = async (orderId, driverPhone) => {
     log.warn('orderEngine', 'arrived_wrong_driver', { orderId, driverPhone, assigned: order.driver_phone })
     return { error: 'not_your_order' }
   }
+  const driver = await q.getDriver(driverPhone).catch(() => null)
   await q.updateOrder(orderId, { status: 'arrived', arrived_at: new Date() })
-  await notify.clientArrived(order.client_phone)
+  await notify.clientArrived(order.client_phone, driver)
   await q.setSession(order.client_phone, 'in_trip', { order_id: orderId })
   await notify.driverTripStarted(driverPhone, order)
   await notify.clientInTrip(order.client_phone, order.destination)
@@ -356,6 +357,18 @@ const complete = async (orderId, driverPhone) => {
   if (newBalance === 0) {
     await q.setDriverStatus(driverPhone, 'offline')
     await notify.driverBalanceEmpty(driverPhone)
+  } else if (order.is_intercity) {
+    // Межгород: водитель не возвращается сразу — офлайн до ручного "на линию"
+    await q.setDriverStatus(driverPhone, 'offline')
+    const freeNote = order.is_free ? '\n🎁 Поездка бесплатная — баланс не списан.' : ''
+    const stats = await q.getDriverTodayStats(driver?.id)
+    const bal = newBalance >= 999999 ? '∞' : newBalance
+    await wa.sendText(driverPhone,
+      '✅ *Межгород завершён!*' + freeNote + '\n\n' +
+      '📊 Сегодня: *' + (stats?.completed || 0) + '* поездок | *' + Number(stats?.earned || 0).toLocaleString() + ' тг*\n' +
+      '📦 Баланс: *' + bal + '*\n\n' +
+      '📍 Когда вернётесь в Осакаровку — напишите *на линию*.'
+    )
   } else {
     await q.setDriverStatus(driverPhone, 'online')
     await q.moveDriverToEndOfQueue(driverPhone)

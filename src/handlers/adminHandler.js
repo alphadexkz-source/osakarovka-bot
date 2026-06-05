@@ -279,14 +279,14 @@ const handle = async (phone, msg, session) => {
     if (lo.startsWith('блок ') && !lo.includes('водитель')) {
       const target = text.split(' ')[1]?.replace(/\D/g, '');
       if (!target) { await wa.sendText(phone, '❌ Укажите номер.'); return; }
-      await q.blacklistUser(target, true);
+      await q.blacklistUser(target, true, 'Заблокирован администратором');
       await wa.sendText(phone, `🚫 ${target} заблокирован.`);
       return;
     }
     if (lo.startsWith('разблок ') && !lo.includes('водитель')) {
       const target = text.split(' ')[1]?.replace(/\D/g, '');
       if (!target) { await wa.sendText(phone, '❌ Укажите номер.'); return; }
-      await q.blacklistUser(target, false);
+      await q.unblockUser(target);
       await wa.sendText(phone, `✅ ${target} разблокирован.`);
       return;
     }
