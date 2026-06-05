@@ -153,6 +153,7 @@ const handle = async (phone, msg, session) => {
 ❌ Отменено: *${s.cancelled}*
 📦 Всего: *${s.total}*
 💰 Оборот: *${Number(s.revenue).toLocaleString()} тг*
+💵 Комиссия (10%): *${Number(s.commission || 0).toLocaleString()} тг*
 
 👥 Онлайн: *${online}/${d.length}*`
       );
@@ -160,12 +161,12 @@ const handle = async (phone, msg, session) => {
     }
     if (lo === 'неделя') {
       const s = await q.getPeriodStats(7);
-      await wa.sendText(phone, `📊 *За 7 дней:*\n\n🚖 Выполнено: *${s.completed}*\n❌ Отменено: *${s.cancelled}*\n💰 Оборот: *${Number(s.revenue).toLocaleString()} тг*\n👤 Клиентов: *${s.unique_clients}*`);
+      await wa.sendText(phone, `📊 *За 7 дней:*\n\n🚖 Выполнено: *${s.completed}*\n❌ Отменено: *${s.cancelled}*\n💰 Оборот: *${Number(s.revenue).toLocaleString()} тг*\n💵 Комиссия (10%): *${Number(s.commission || 0).toLocaleString()} тг*\n👤 Клиентов: *${s.unique_clients}*`);
       return;
     }
     if (lo === 'месяц') {
       const s = await q.getPeriodStats(30);
-      await wa.sendText(phone, `📊 *За 30 дней:*\n\n🚖 Выполнено: *${s.completed}*\n❌ Отменено: *${s.cancelled}*\n💰 Оборот: *${Number(s.revenue).toLocaleString()} тг*\n👤 Клиентов: *${s.unique_clients}*`);
+      await wa.sendText(phone, `📊 *За 30 дней:*\n\n🚖 Выполнено: *${s.completed}*\n❌ Отменено: *${s.cancelled}*\n💰 Оборот: *${Number(s.revenue).toLocaleString()} тг*\n💵 Комиссия (10%): *${Number(s.commission || 0).toLocaleString()} тг*\n👤 Клиентов: *${s.unique_clients}*`);
       return;
     }
     if (lo === 'топ водителей') {

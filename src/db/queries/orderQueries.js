@@ -114,7 +114,8 @@ const getTodayStats = async () => {
     `SELECT COUNT(*) FILTER(WHERE status='completed') AS completed,
             COUNT(*) FILTER(WHERE status='cancelled') AS cancelled,
             COUNT(*) AS total,
-            COALESCE(SUM(price) FILTER(WHERE status='completed'),0) AS revenue
+            COALESCE(SUM(price) FILTER(WHERE status='completed'),0) AS revenue,
+            COALESCE(SUM(commission_tg) FILTER(WHERE status='completed'),0) AS commission
      FROM orders WHERE created_at::date=CURRENT_DATE`
   )
   return r.rows[0]
@@ -126,6 +127,7 @@ const getPeriodStats = async (days) => {
             COUNT(*) FILTER(WHERE status='cancelled') AS cancelled,
             COUNT(*) AS total,
             COALESCE(SUM(price) FILTER(WHERE status='completed'),0) AS revenue,
+            COALESCE(SUM(commission_tg) FILTER(WHERE status='completed'),0) AS commission,
             COUNT(DISTINCT client_id) AS unique_clients
      FROM orders WHERE created_at >= NOW() - make_interval(days => $1::int)`,
     [days]

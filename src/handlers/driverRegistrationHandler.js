@@ -3,6 +3,13 @@ const q = require('../db/queries')
 
 const handleRegistration = async (phone, msg, state) => {
   const { text, type, mediaUrl } = msg
+  const lo = (text || '').toLowerCase().trim()
+  const CANCEL_REG = ['отмена', 'отменить', 'отменяю', 'выход', 'назад', '/cancel', 'стоп']
+  if (CANCEL_REG.includes(lo)) {
+    await q.clearSession(phone)
+    await wa.sendText(phone, '❌ Регистрация отменена.\n\nНапишите куда ехать 🚖 или *"на линию"* чтобы работать водителем.')
+    return
+  }
   switch (state) {
     case 'reg_name':
       if (!text || text.length < 2) { await wa.sendText(phone, '👤 Введите ваше полное имя (ФИО):\nНапример: *Иванов Иван Иванович*'); return }

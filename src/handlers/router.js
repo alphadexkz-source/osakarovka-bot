@@ -170,8 +170,9 @@ const route = async (body) => {
       const driverStatus = driver?.status || 'offline';
       const inReg = session?.state?.startsWith('reg_');
 
-      // Нет записи водителя вообще → запускаем регистрацию заново
+      // Нет записи водителя вообще → для admin просто клиентский режим, для driver → регистрация
       if (!driver) {
+        if (role === 'admin') return clientHandler.handle(phone, name, msg, session);
         await q.createDriver((await q.getUser(phone))?.id).catch(() => {});
         await q.setSession(phone, 'reg_name', {});
         await wa.sendText(phone, 'Для работы водителем пройдите регистрацию.\n\nШаг 1/5: Введите ваше полное имя (ФИО):');
@@ -186,10 +187,11 @@ const route = async (body) => {
 
       const isFullyRegistered = !!(driver.full_name && driver.car_plate && driver.car_make);
 
-      // Есть запись но поля пустые → запускаем регистрацию (новый водитель)
+      // Есть запись но поля пустые → для admin просто клиентский режим, для driver → регистрация
       if (!inReg && !isFullyRegistered) {
         const isEmpty = !driver.full_name && !driver.car_plate && !driver.car_make;
         if (isEmpty) {
+          if (role === 'admin') return clientHandler.handle(phone, name, msg, session);
           await q.setSession(phone, 'reg_name', {});
           await wa.sendText(phone, 'Для работы водителем пройдите регистрацию.\n\nШаг 1/5: Введите ваше полное имя (ФИО):');
           return;

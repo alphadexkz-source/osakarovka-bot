@@ -268,10 +268,11 @@ const complete = async (orderId, driverPhone) => {
   let newBalance
   try {
     await txClient.query('BEGIN')
+    const commission = Math.round((order.price || 0) * 0.10)
     const updated = await txClient.query(
-      `UPDATE orders SET status='completed', completed_at=NOW()
+      `UPDATE orders SET status='completed', completed_at=NOW(), commission_tg=$2
        WHERE id=$1 AND status IN('arrived','accepted') RETURNING id`,
-      [orderId]
+      [orderId, commission]
     )
     if (!updated.rows[0]) {
       await txClient.query('ROLLBACK')
