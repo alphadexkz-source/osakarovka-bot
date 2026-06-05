@@ -1,5 +1,6 @@
-const Groq = require('groq-sdk');
-const db   = require('../db/index');
+const Groq  = require('groq-sdk');
+const axios = require('axios');
+const db    = require('../db/index');
 const { SYSTEM_CONTEXT } = require('./prompts');
 
 let groq = null;
@@ -133,7 +134,24 @@ const looksLikeAddress = (text) => {
   return false
 }
 
-// Core function — DB first, then Groq function calling. Result cached 1h.
+// Cerebras fallback (llama-3.3-70b, бесплатно, OpenAI-compatible)
+const callCerebras = async (text, systemPrompt) => {
+  if (!process.env.CEREBRAS_API_KEY) return null;
+  const resp = await axios.post('https://api.cerebras.ai/v1/chat/completions', {
+    model: 'llama-3.3-70b',
+    messages: [{ role: 'system', content: systemPrompt }, { role: 'user', content: text }],
+    tools: TOOLS,
+    tool_choice: 'required',
+    max_tokens: 100,
+    temperature: 0,
+  }, {
+    headers: { Authorization: `Bearer ${process.env.CEREBRAS_API_KEY}`, 'Content-Type': 'application/json' },
+    timeout: 5000,
+  });
+  return resp.data;
+};
+
+// Core function — DB first, then Groq → Cerebras → regex fallback. Result cached 1h.
 const getAnalysis = async (text) => {
   const lo = (text || '').toLowerCase().trim();
   if (!lo || lo.length < 2) return { is_address: false };
@@ -217,7 +235,24 @@ is_address — строго boolean true или false, НИКОГДА строк
     return analysis;
   } catch (err) {
     console.error('[addressDetector:groq]', err.message);
-    // Умный fallback через looksLikeAddress; короткий TTL (5 мин) чтобы переспросить Groq позже
+    // Cerebras fallback (тот же llama-3.3-70b, бесплатный провайдер)
+    try {
+      const cerebrasResp = await withTimeout(
+        callCerebras(text, SYSTEM_CONTEXT + `\n\nПроанализируй сообщение клиента. Вызови инструмент analyze_message.\nis_address — строго boolean true или false.`),
+        5000, null
+      );
+      if (cerebrasResp) {
+        const toolCall = cerebrasResp.choices?.[0]?.message?.tool_calls?.[0];
+        const raw = toolCall ? JSON.parse(toolCall.function.arguments) : { is_address: false };
+        const analysis = { ...raw, is_address: raw.is_address === true || raw.is_address === 'true' };
+        cache.set(lo, analysis);
+        setTimeout(() => cache.delete(lo), 3600000);
+        return analysis;
+      }
+    } catch (e2) {
+      console.error('[addressDetector:cerebras]', e2.message);
+    }
+    // Финальный fallback — regex; короткий TTL чтобы переспросить LLM позже
     const fallback = { is_address: looksLikeAddress(lo) };
     cache.set(lo, fallback);
     setTimeout(() => cache.delete(lo), 300_000);

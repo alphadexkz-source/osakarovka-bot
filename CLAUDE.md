@@ -21,6 +21,24 @@
 | **Claude Haiku** | `claude-haiku-4-5-20251001` (smartReply, greetingService — чат с клиентами, имя: Айгуль) |
 | **Claude Sonnet** | `claude-sonnet-4-6` (agent/llm.js — Hermes мозг, agent/tools.js — анализ ошибок) |
 | **GCP Project** | `project-71dedb61-45a3-4e5c-986` |
+| **Cerebras** | `CEREBRAS_API_KEY` — резервный для Groq (`llama-3.3-70b`, 30 RPM, бесплатно) |
+
+## Бесплатные LLM API (резервы / альтернативы)
+
+Источник: [mnfst/awesome-free-llm-apis](https://github.com/mnfst/awesome-free-llm-apis)
+
+| Провайдер | Модели | Лимит | Base URL | Применение |
+|-----------|--------|-------|----------|------------|
+| **Groq** ✅ | llama-3.3-70b, qwen3-32b, whisper-large-v3 | 30 RPM, 14K RPD | `https://api.groq.com/openai/v1` | addressDetector, scheduleParser, voice |
+| **Cerebras** ✅ | llama-3.3-70b (2600 tok/s!) | 30 RPM, 14K RPD | `https://api.cerebras.ai/v1` | Резерв Groq в addressDetector |
+| **Google Gemini** | gemini-2.5-flash | 15 RPM, 1K RPD | `https://generativelanguage.googleapis.com/v1beta/openai/` | Альтернатива Claude Haiku для smartReply |
+| **Mistral** | mistral-small-4 | ~1 RPS, 500K TPM | `https://api.mistral.ai/v1` | Альтернатива Claude Haiku |
+| **LLM7.io** | deepseek-v3, gpt-4o-mini, gemini-2.5-flash | 30 RPM (без ключа!) | `https://api.llm7.io/v1` | Любой fallback без регистрации |
+| **OpenRouter** | 28+ бесплатных моделей | 20 RPM, 50 RPD | `https://openrouter.ai/api/v1` | Доступ к Claude/GPT бесплатно |
+
+> **CEREBRAS_API_KEY** уже интегрирован: `addressDetector.js` пробует Cerebras если Groq недоступен.
+> 
+> **Ресурс alistaitsacle/free-llm-api-keys** — публичные ключи 24-48h, НЕ для продакшена. Для тестирования/разработки: base URL `https://aiapiv2.pekpik.com/v1`, поддерживает Claude/GPT/Gemini/Grok.
 
 ## Архитектура
 
