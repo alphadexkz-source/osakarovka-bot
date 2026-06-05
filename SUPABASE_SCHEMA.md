@@ -266,7 +266,7 @@ SUPABASE_SERVICE_KEY=<service_role_key из Supabase Dashboard → Settings → 
 
 ---
 
-### `agent_memory` — долгосрочная память Telegram-агента
+### `agent_memory` — долгосрочная память Hermes-агента
 
 | Колонка | Тип | Описание |
 |---------|-----|----------|
