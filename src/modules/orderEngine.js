@@ -259,9 +259,48 @@ const complete = async (orderId, driverPhone) => {
   if (!order) return { error: 'not_found' }
   if (!['arrived', 'accepted'].includes(order.status)) return { error: 'wrong_status' }
   const driver = await q.getDriver(driverPhone)
-  await q.updateOrder(orderId, { status: 'completed', completed_at: new Date() })
+
+  // ── Атомарная транзакция: статус заказа + лояльность клиента + баланс водителя ──
+  const txClient = await db.getClient()
+  let newBalance
+  try {
+    await txClient.query('BEGIN')
+    const updated = await txClient.query(
+      `UPDATE orders SET status='completed', completed_at=NOW()
+       WHERE id=$1 AND status IN('arrived','accepted') RETURNING id`,
+      [orderId]
+    )
+    if (!updated.rows[0]) {
+      await txClient.query('ROLLBACK')
+      return { error: 'already_completed' }
+    }
+    await txClient.query(
+      `UPDATE users SET trip_count=trip_count+1 WHERE phone=$1`,
+      [order.client_phone]
+    )
+    if (!order.is_free) {
+      const r = await txClient.query(
+        `UPDATE drivers SET order_balance =
+           CASE WHEN order_balance >= 999999 THEN order_balance
+                WHEN order_balance > 0       THEN order_balance - 1
+                ELSE 0 END
+         WHERE id=$1 RETURNING order_balance`,
+        [driver.id]
+      )
+      newBalance = r.rows[0]?.order_balance ?? 0
+    } else {
+      newBalance = driver?.order_balance ?? 1
+    }
+    await txClient.query('COMMIT')
+  } catch (e) {
+    await txClient.query('ROLLBACK')
+    throw e
+  } finally {
+    txClient.release()
+  }
+
+  // ── После транзакции: логирование, уведомления, сессии, очередь ────────────
   log.order('complete', { orderId, driver: driverPhone, client: order.client_phone, price: order.price, isFree: order.is_free })
-  await q.incrementTripCount(order.client_phone)
   await notify.clientCompleted(order.client_phone, order.price, order.is_free, order.destination)
   await q.setSession(order.client_phone, 'idle', {})
 
@@ -269,7 +308,7 @@ const complete = async (orderId, driverPhone) => {
   setTimeout(async () => {
     try {
       const sess = await q.getSession(order.client_phone).catch(() => null)
-      if (sess?.state !== 'idle') return // клиент уже что-то делает — не прерываем
+      if (sess?.state !== 'idle') return
       const driverName = driver?.full_name || 'водитель'
       const ratingMsg =
         `⭐ *Оцените поездку!*\n\n` +
@@ -291,14 +330,19 @@ const complete = async (orderId, driverPhone) => {
     } catch (e) { console.error('[orderEngine/rating_request]', e.message) }
   }, 5000)
 
-  const result = await driverMgr.afterTrip(driverPhone, driver?.id, order.is_free)
-  if (result.offline) {
+  if (newBalance === 0) {
+    await q.setDriverStatus(driverPhone, 'offline')
     await notify.driverBalanceEmpty(driverPhone)
   } else {
-    await notify.driverBalanceLow(driverPhone, result.balance)
+    await q.setDriverStatus(driverPhone, 'online')
+    await q.moveDriverToEndOfQueue(driverPhone)
+    if (driver && parseFloat(driver.rating) < config.LOW_RATING) {
+      await q.updateDriver(driverPhone, { skip_next: true })
+    }
+    await notify.driverBalanceLow(driverPhone, newBalance)
     const freeNote = order.is_free ? '\n🎁 Поездка бесплатная — баланс не списан.' : ''
     const stats = await q.getDriverTodayStats(driver?.id)
-    const bal = result.balance >= 999999 ? '∞' : result.balance
+    const bal = newBalance >= 999999 ? '∞' : newBalance
     const pos = await q.getDriverQueuePosition(driverPhone)
     const cnt = (await q.getOnlineDriversQueue()).length
     await wa.sendText(driverPhone,

@@ -11,6 +11,12 @@ const getGroq = () => {
 
 // Cache stores full analysis: { is_address, destination, comment, _db }
 const cache = new Map();
+const MAX_CACHE_SIZE = 1000;
+const cacheSet = (key, value, ttlMs) => {
+  if (cache.size >= MAX_CACHE_SIZE) cache.delete(cache.keys().next().value);
+  cache.set(key, value);
+  setTimeout(() => cache.delete(key), ttlMs);
+};
 
 const NOT_ADDRESS = [
   // подтверждения / ответы
@@ -151,6 +157,27 @@ const callCerebras = async (text, systemPrompt) => {
   return resp.data;
 };
 
+// OpenRouter fallback (meta-llama/llama-3.3-70b-instruct:free, бесплатно, OpenAI-compatible)
+const callOpenRouter = async (text, systemPrompt) => {
+  if (!process.env.OPENROUTER_API_KEY) return null;
+  const resp = await axios.post('https://openrouter.ai/api/v1/chat/completions', {
+    model: 'meta-llama/llama-3.3-70b-instruct:free',
+    messages: [{ role: 'system', content: systemPrompt }, { role: 'user', content: text }],
+    tools: TOOLS,
+    tool_choice: 'required',
+    max_tokens: 100,
+    temperature: 0,
+  }, {
+    headers: {
+      Authorization: `Bearer ${process.env.OPENROUTER_API_KEY}`,
+      'Content-Type': 'application/json',
+      'HTTP-Referer': 'https://github.com/osakarovka-bot',
+    },
+    timeout: 8000,
+  });
+  return resp.data;
+};
+
 // Core function — DB first, then Groq → Cerebras → regex fallback. Result cached 1h.
 const getAnalysis = async (text) => {
   const lo = (text || '').toLowerCase().trim();
@@ -165,8 +192,7 @@ const getAnalysis = async (text) => {
   const dbResult = await findInAddresses(lo);
   if (dbResult.found) {
     const result = { is_address: true, destination: dbResult.name, _db: dbResult };
-    cache.set(lo, result);
-    setTimeout(() => cache.delete(lo), 3600000);
+    cacheSet(lo, result, 3600000);
     return result;
   }
 
@@ -230,8 +256,7 @@ is_address — строго boolean true или false, НИКОГДА строк
       ...raw,
       is_address: raw.is_address === true || raw.is_address === 'true',
     };
-    cache.set(lo, analysis);
-    setTimeout(() => cache.delete(lo), 3600000);
+    cacheSet(lo, analysis, 3600000);
     return analysis;
   } catch (err) {
     console.error('[addressDetector:groq]', err.message);
@@ -245,17 +270,31 @@ is_address — строго boolean true или false, НИКОГДА строк
         const toolCall = cerebrasResp.choices?.[0]?.message?.tool_calls?.[0];
         const raw = toolCall ? JSON.parse(toolCall.function.arguments) : { is_address: false };
         const analysis = { ...raw, is_address: raw.is_address === true || raw.is_address === 'true' };
-        cache.set(lo, analysis);
-        setTimeout(() => cache.delete(lo), 3600000);
+        cacheSet(lo, analysis, 3600000);
         return analysis;
       }
     } catch (e2) {
       console.error('[addressDetector:cerebras]', e2.message);
     }
+    // OpenRouter fallback (llama-3.3-70b:free, OpenAI-compatible)
+    try {
+      const orResp = await withTimeout(
+        callOpenRouter(text, SYSTEM_CONTEXT + `\n\nПроанализируй сообщение клиента. Вызови инструмент analyze_message.\nis_address — строго boolean true или false.`),
+        8000, null
+      );
+      if (orResp) {
+        const toolCall = orResp.choices?.[0]?.message?.tool_calls?.[0];
+        const raw = toolCall ? JSON.parse(toolCall.function.arguments) : { is_address: false };
+        const analysis = { ...raw, is_address: raw.is_address === true || raw.is_address === 'true' };
+        cacheSet(lo, analysis, 3600000);
+        return analysis;
+      }
+    } catch (e3) {
+      console.error('[addressDetector:openrouter]', e3.message);
+    }
     // Финальный fallback — regex; короткий TTL чтобы переспросить LLM позже
     const fallback = { is_address: looksLikeAddress(lo) };
-    cache.set(lo, fallback);
-    setTimeout(() => cache.delete(lo), 300_000);
+    cacheSet(lo, fallback, 300_000);
     return fallback;
   }
 };

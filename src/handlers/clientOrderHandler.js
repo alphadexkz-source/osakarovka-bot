@@ -241,7 +241,8 @@ const handleOrderState = async (phone, name, lo, text, msg, session) => {
     if (isCancel(lo)) { await q.clearSession(phone); await wa.sendText(phone, '❌ Отменено. Напишите куда ехать.'); return true }
     if (!text || text.length < 2) { await wa.sendText(phone, '📍 Введите адрес откуда вас забрать:'); return true }
     const ctx = session?.ctx || {}
-    const pi = await tariff.getPrice(ctx.destination || '')
+    const routeText = (ctx.destination || '') + ' ' + text.trim()
+    const pi = await tariff.getPrice(routeText)
     await q.setSession(phone, 'intercity_confirm', { ...ctx, pickup: text.trim(), price: pi.price })
     await wa.sendButtons(phone,
       '🚗 *Межгородской заказ*\n\n📍 Откуда: *' + text.trim() + '*\n🏁 Куда: *' + ctx.destination + '*\n💰 Цена: *' + pi.price + ' тг*\n\nВсё верно?',

@@ -122,8 +122,9 @@ const checkDispatchTimeouts = async () => {
       const driverPhone = order.dispatched_to
       await q.clearDispatchState(order.id)
       if (driverPhone) {
-        console.log(`[TimerService] Таймаут диспетчеризации: заказ #${order.id}, водитель ${driverPhone}`);
-        await orderEngine.cancel(order.id, 'no_response').catch(() => {})
+        console.log(`[TimerService] Таймаут диспетчеризации: заказ #${order.id}, передаём следующему водителю`);
+        await q.setSession(driverPhone, 'idle', {}).catch(() => {})
+        orderEngine.resumeDispatch(order.id).catch(e => console.error('[Timer/resume_dispatch]', e.message))
       }
     } catch (e) { console.error('[Timer/dispatch_timeout]', e.message) }
   }

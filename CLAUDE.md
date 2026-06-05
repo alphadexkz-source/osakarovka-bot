@@ -22,6 +22,7 @@
 | **Claude Sonnet** | `claude-sonnet-4-6` (agent/llm.js — Hermes мозг, agent/tools.js — анализ ошибок) |
 | **GCP Project** | `project-71dedb61-45a3-4e5c-986` |
 | **Cerebras** | `CEREBRAS_API_KEY` — резервный для Groq (`llama-3.3-70b`, 30 RPM, бесплатно) |
+| **OpenRouter** | `OPENROUTER_API_KEY` — резерв после Cerebras (`llama-3.3-70b:free`, 20 RPM, бесплатно) |
 
 ## Бесплатные LLM API (резервы / альтернативы)
 
@@ -31,12 +32,20 @@
 |-----------|--------|-------|----------|------------|
 | **Groq** ✅ | llama-3.3-70b, qwen3-32b, whisper-large-v3 | 30 RPM, 14K RPD | `https://api.groq.com/openai/v1` | addressDetector, scheduleParser, voice |
 | **Cerebras** ✅ | llama-3.3-70b (2600 tok/s!) | 30 RPM, 14K RPD | `https://api.cerebras.ai/v1` | Резерв Groq в addressDetector |
+| **OpenRouter** ✅ | 28+ бесплатных моделей (llama-3.3-70b:free, claude-3-haiku:free и др.) | 20 RPM, 50 RPD | `https://openrouter.ai/api/v1` | Резерв Cerebras в addressDetector |
 | **Google Gemini** | gemini-2.5-flash | 15 RPM, 1K RPD | `https://generativelanguage.googleapis.com/v1beta/openai/` | Альтернатива Claude Haiku для smartReply |
 | **Mistral** | mistral-small-4 | ~1 RPS, 500K TPM | `https://api.mistral.ai/v1` | Альтернатива Claude Haiku |
 | **LLM7.io** | deepseek-v3, gpt-4o-mini, gemini-2.5-flash | 30 RPM (без ключа!) | `https://api.llm7.io/v1` | Любой fallback без регистрации |
-| **OpenRouter** | 28+ бесплатных моделей | 20 RPM, 50 RPD | `https://openrouter.ai/api/v1` | Доступ к Claude/GPT бесплатно |
+| **LiteLLM** | 100+ провайдеров через один SDK | Зависит от провайдера | `http://localhost:4000` (self-hosted proxy) | Универсальный прокси — один интерфейс для всех LLM |
+| **Portkey** | 250+ провайдеров, авто-fallback, кеш, retry | Free tier: 10K req/мес | `https://api.portkey.ai/v1` (cloud) или self-hosted | AI Gateway — заменяет ручную цепочку fallback |
 
-> **CEREBRAS_API_KEY** уже интегрирован: `addressDetector.js` пробует Cerebras если Groq недоступен.
+> **Цепочка fallback в addressDetector.js**: Groq → Cerebras → OpenRouter → regex
+>
+> **CEREBRAS_API_KEY** + **OPENROUTER_API_KEY** нужно добавить на сервер в `.env`
+>
+> **LiteLLM** (BerriAI/litellm) — Python-прокси: один OpenAI-совместимый эндпоинт роутит запросы к 100+ провайдерам. Запуск: `litellm --model groq/llama-3.3-70b-versatile`. Подходит если нужен единый шлюз для всех LLM.
+>
+> **Portkey** (portkey.ai) — AI Gateway с OpenAI-совместимым API. Автоматические fallback, retry, семантический кеш, observability. Может заменить ручную цепочку Groq→Cerebras→OpenRouter одним вызовом с конфигом. Установка: `npm install portkey-ai`. Self-hosted: `@portkey-ai/gateway`.
 > 
 > **Ресурс alistaitsacle/free-llm-api-keys** — публичные ключи 24-48h, НЕ для продакшена. Для тестирования/разработки: base URL `https://aiapiv2.pekpik.com/v1`, поддерживает Claude/GPT/Gemini/Grok.
 
@@ -213,6 +222,7 @@ ADMIN_PIN=            # PIN для входа в админ панель (/admin
 DRIVER_CODE=          # Код для регистрации водителей
 GROQ_API_KEY=         # Groq AI API key
 ANTHROPIC_API_KEY=    # Claude API key (agent/tools.js — глубокий анализ ошибок)
+WEBHOOK_SECRET=       # Секретный токен для webhook URL (?token=...) — защита от подделки
 WEATHER_API_KEY=      # OpenWeatherMap API key
 DGIS_API_KEY=         # 2GIS API key (для import_2gis.js)
 SUPABASE_URL=         # https://jgnfjawqacmaqhgpsbcj.supabase.co
@@ -333,20 +343,20 @@ ON CONFLICT(key) DO UPDATE SET value=EXCLUDED.value;
 ### 🔴 Высокий приоритет
 | # | Проблема | Файл | Усилие |
 |---|----------|------|--------|
-| TD-01 | Нет транзакций в `complete()` — 12+ последовательных запросов без rollback | `orderEngine.js:257` | 2-3 ч |
-| TD-02 | `checkDispatchTimeouts` при рестарте отменяет заказ вместо `resumeDispatch` | `timerService.js:134` | 2 ч |
+| ~~TD-01~~ | ~~Нет транзакций в `complete()`~~ | ✅ Исправлено — BEGIN/COMMIT для order+trip_count+balance |
+| ~~TD-02~~ | ~~`checkDispatchTimeouts` при рестарте отменяет заказ~~ | ✅ Исправлено — `resumeDispatch` вместо `cancel` |
 | ~~TD-03~~ | ~~5 недостающих индексов БД~~ | ✅ Исправлено — `migrations/002_performance_indexes.sql` (7 индексов) |
-| TD-04 | Webhook без HMAC — `instanceData.idInstance` подделывается (CVSS 8.6) | `src/index.js:73` | 1-2 ч |
+| ~~TD-04~~ | ~~Webhook без HMAC~~ | ✅ Исправлено — `WEBHOOK_SECRET` token в query-параметре (`?token=`) |
 
 ### 🟡 Средний приоритет
 | # | Проблема | Файл |
 |---|----------|------|
 | TD-05 | Тестовое покрытие 17% — нет тестов для `orderEngine`, `driverManager`, `scheduleParser` | `tests/unit/` |
-| TD-06 | `stateMachine.js` мёртвый код — нигде не импортируется | `src/modules/stateMachine.js` |
-| TD-07 | `supabaseClient.js` мёртвый код в `src/lib/` | `src/lib/supabaseClient.js` |
-| TD-08 | Межгород: цена ищется по `destination`, не по маршруту | `clientOrderHandler.js:244` |
+| ~~TD-06~~ | ~~`stateMachine.js` мёртвый код~~ | ✅ Удалён |
+| ~~TD-07~~ | ~~`supabaseClient.js` мёртвый код~~ | ✅ Удалён |
+| ~~TD-08~~ | ~~Межгород: цена ищется по `destination`, не по маршруту~~ | ✅ Исправлено — поиск по `destination + pickup` |
 | ~~TD-09~~ | ~~`_groqCounts` Map никогда не чистится~~ | ✅ Исправлено — `_rateLimits` с setInterval |
-| TD-10 | `addressDetector` cache — unbounded Map (нет MAX_SIZE) | `addressDetector.js` |
+| ~~TD-10~~ | ~~`addressDetector` cache — unbounded Map~~ | ✅ Исправлено — MAX_CACHE_SIZE=1000, `cacheSet()` с LRU-eviction |
 | ~~TD-11~~ | ~~Hermes: ложные алерты~~ | ✅ Временно решено — `hermes-agent` отключён из PM2 (`ecosystem.config.js`) |
 
 ---

@@ -7,8 +7,9 @@ if (!process.env.ADMIN_PIN || !process.env.DRIVER_CODE) {
 
 module.exports = {
   // Green API
-  INSTANCE_ID:   process.env.GREEN_API_ID,
-  API_TOKEN:     process.env.GREEN_API_TOKEN,
+  INSTANCE_ID:    process.env.GREEN_API_ID,
+  API_TOKEN:      process.env.GREEN_API_TOKEN,
+  WEBHOOK_SECRET: process.env.WEBHOOK_SECRET || '',
 
   // Database
   DATABASE_URL:  process.env.DATABASE_URL,
