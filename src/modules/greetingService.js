@@ -6,7 +6,7 @@ let groq = null;
 const getGroq = () => { if (!groq) groq = new Groq({ apiKey: process.env.GROQ_API_KEY }); return groq; };
 
 const getTimeOfDay = () => {
-  const h = new Date().getHours();
+  const h = new Date(Date.now() + 5 * 3600_000).getUTCHours(); // UTC+5 Almaty
   if (h >= 6  && h < 12) return { ru:'утро',   greeting_ru:'Доброе утро',   greeting_kz:'Қайырлы таң' };
   if (h >= 12 && h < 17) return { ru:'день',   greeting_ru:'Добрый день',   greeting_kz:'Қайырлы күн' };
   if (h >= 17 && h < 22) return { ru:'вечер',  greeting_ru:'Добрый вечер',  greeting_kz:'Қайырлы кеш' };

@@ -52,21 +52,13 @@ const checkSilence = async () => {
 
 const checkStuckOrders = async () => {
   const stuck = await db.query(
-    `SELECT o.id, u.phone AS client_phone
-     FROM orders o
-     JOIN users u ON o.client_id = u.id
+    `SELECT o.id FROM orders o
      WHERE o.status = 'searching'
        AND o.created_at < NOW() - INTERVAL '10 minutes'`
   ).then(r => r.rows).catch(() => []);
   for (const order of stuck) {
-    await db.query(
-      `UPDATE orders SET status='cancelled', cancel_reason='Нет водителей' WHERE id=$1`,
-      [order.id]
-    );
-    await db.query(`UPDATE sessions SET state='idle', ctx='{}' WHERE phone=$1`, [order.client_phone]);
-    await wa.sendText(order.client_phone,
-      '😔 *К сожалению, свободных водителей не нашлось.*\n\nПопробуйте заказать через несколько минут. 🚖'
-    );
+    // Используем orderEngine.cancel — чистит acceptTimers, уведомляет водителя, пишет лог
+    await orderEngine.cancel(order.id, 'Нет водителей').catch(() => {});
   }
 };
 

@@ -96,9 +96,9 @@ const monitorBot = async () => {
       console.log(`[${AGENT_NAME}] Claude ответил:`, claudeAnalysis.slice(0, 200));
     }
 
-    // Алерт если критично
+    // Алерт если критично — стабильный ключ чтобы не спамить БД
     if (decision.alert) {
-      await memory.remember('alert', 'alert_' + Date.now(), decision.alert, 10, 'monitor');
+      await memory.remember('alert', 'alert_current', decision.alert, 10, 'monitor');
       console.log(`[${AGENT_NAME}] ⚠️ АЛЕРТ: ${decision.alert}`);
     }
 

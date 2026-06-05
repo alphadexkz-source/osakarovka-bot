@@ -1,9 +1,9 @@
 const q      = require('../db/queries');
 const config = require('../config');
 
-// Ночное время?
+// Ночное время? Сервер UTC+1/2, Осакаровка UTC+5 — используем UTC+5
 const isNight = () => {
-  const h = new Date().getHours();
+  const h = new Date(Date.now() + 5 * 3600_000).getUTCHours();
   const { NIGHT_START: s, NIGHT_END: e } = config;
   return s < e ? h >= s && h < e : h >= s || h < e;
 };

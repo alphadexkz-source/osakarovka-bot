@@ -31,7 +31,7 @@ const getGroqReply = async (text, phone) => {
   try {
     const weather = await getWeather().catch(() => null);
     const weatherStr = formatWeatherForGroq(weather);
-    const h = new Date().getHours();
+    const h = new Date(Date.now() + 5 * 3600_000).getUTCHours(); // UTC+5 Almaty
     const tod = h>=6&&h<12?'утро':h>=12&&h<17?'день':h>=17&&h<22?'вечер':'ночь';
 
     const r = await getGroq().chat.completions.create({
@@ -64,7 +64,7 @@ const getGroqDriverReply = async (text, driverName, stats, extra, phone) => {
     const weather = await getWeather().catch(() => null);
     const weatherBrief = formatWeatherBrief(weather);
     const weatherImportant = formatWeatherForGroq(weather);
-    const h = new Date().getHours();
+    const h = new Date(Date.now() + 5 * 3600_000).getUTCHours(); // UTC+5 Almaty
     const tod = h>=6&&h<12?'утро':h>=12&&h<17?'день':h>=17&&h<22?'вечер':'ночь';
     const queueInfo = extra?.queuePos ? 'Позиция в очереди: ' + extra.queuePos + '-й из ' + extra.queueTotal + ' водителей.' : '';
     const statsInfo = stats ? 'Сегодня выполнено: ' + (stats.completed||0) + ' поездок, заработано: ' + Number(stats.earned||0).toLocaleString() + ' тг.' : '';
@@ -101,7 +101,7 @@ const parseScheduleTime = async (text) => {
   if (/\d{1,2}:\d{2}/.test(lo)) return text.trim();
   try {
     const now = new Date();
-    const h = now.getHours();
+    const h = new Date(Date.now() + 5 * 3600_000).getUTCHours(); // UTC+5 Almaty
     const r = await getGroq().chat.completions.create({
       messages: [{
         role: 'system',

@@ -1,8 +1,8 @@
 // Инструменты агента — что он умеет делать
 require('dotenv').config({ path: require('path').join(__dirname, '../.env') });
-const { exec } = require('child_process');
+const { execFile } = require('child_process');
 const { promisify } = require('util');
-const execAsync = promisify(exec);
+const execFileAsync = promisify(execFile);
 const Groq = require('groq-sdk');
 
 const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
@@ -10,8 +10,15 @@ const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
 // ─── СЕРВЕР ──────────────────────────────────────────────────
 const ssh = async (command) => {
   try {
-    const sshCmd = `ssh -o StrictHostKeyChecking=no -i ~/.ssh/google_compute_engine alphadexkz@34.40.3.202 "${command.replace(/"/g, '\\"')}"`;
-    const { stdout, stderr } = await execAsync(sshCmd, { timeout: 30000 });
+    const homeDir = process.env.HOME || '/root';
+    const { stdout, stderr } = await execFileAsync(
+      'ssh',
+      ['-o', 'StrictHostKeyChecking=no',
+       '-i', `${homeDir}/.ssh/google_compute_engine`,
+       'alphadexkz@34.40.3.202',
+       command],
+      { timeout: 30000 }
+    );
     return { ok: true, output: (stdout + stderr).slice(0, 3000) };
   } catch(e) {
     return { ok: false, output: e.message.slice(0, 500) };

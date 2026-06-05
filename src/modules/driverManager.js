@@ -4,9 +4,10 @@ const config = require('../config');
 // Выйти на линию
 const goOnline = async (phone) => {
   const driver = await q.getDriver(phone);
-  if (!driver)                    return { error: 'not_registered' };
-  if (driver.order_balance <= 0)  return { error: 'no_balance'     };
-  if (driver.status === 'busy')   return { error: 'in_trip'        };
+  if (!driver)                       return { error: 'not_registered' };
+  if (driver.status === 'blocked')   return { error: 'blocked'        };
+  if (driver.order_balance <= 0)     return { error: 'no_balance'     };
+  if (driver.status === 'busy')      return { error: 'in_trip'        };
 
   await q.setDriverStatus(phone, 'online');
   await q.moveDriverToEndOfQueue(phone);

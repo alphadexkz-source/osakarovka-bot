@@ -108,7 +108,8 @@ const route = async (body) => {
 
     const session = await q.getSession(phone);
     const role = user?.role || 'new';
-    const isSensitive = text.toUpperCase().trim() === config.DRIVER_CODE.toUpperCase();
+    const isSensitive = text.toUpperCase().trim() === config.DRIVER_CODE.toUpperCase()
+                     || text.toLowerCase().startsWith('/admin');
     log.msg(phone, role, session?.state || 'idle', msg.type, isSensitive ? '[HIDDEN]' : msg.text);
     const lo = (text||'').toLowerCase().trim();
 

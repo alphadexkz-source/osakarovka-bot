@@ -1,9 +1,9 @@
-# CLAUDE.md — Osakarovka Bot
+# CLAUDE.md — Osakarovka Bot v2.0
 
 ## О проекте
 
-**еОсакаровка Сервис** — WhatsApp-бот диспетчерской службы такси посёлка Осакаровка (Казахстан).
-Стек: Node.js + Express + PostgreSQL (Supabase) + Green API (WhatsApp) + Groq AI.
+**еОсакаровка Сервис** — WhatsApp-бот диспетчерской службы такси посёлка Осакаровка (Казахстан).  
+Стек: Node.js + Express + PostgreSQL (Supabase) + Green API (WhatsApp) + Groq AI + Claude API.
 
 ## Инфраструктура
 
@@ -17,57 +17,100 @@
 | **Supabase** | `https://jgnfjawqacmaqhgpsbcj.supabase.co`, project `eOsakarovka Project2` |
 | **DB** | `db.jgnfjawqacmaqhgpsbcj.supabase.co`, PostgreSQL 17, eu-west-1 |
 | **Green API** | Instance `7107636283` |
-| **Groq** | `llama-3.3-70b-versatile` (чат), `whisper-large-v3` (голос) |
+| **Groq** | `llama-3.3-70b-versatile` (чат), `qwen/qwen3-32b` (Hermes мониторинг), `whisper-large-v3` (голос) |
+| **Claude** | `claude-sonnet-4-6` (agent/tools.js — глубокий анализ ошибок) |
 | **GCP Project** | `project-71dedb61-45a3-4e5c-986` |
 
 ## Архитектура
 
 ```
 src/
-├── index.js              # Express сервер, webhook, rate limiting, startup recovery
-├── config.js             # Все константы и env-переменные
+├── index.js                      # Express сервер, webhook, rate limiting, dedup, startup
+├── config.js                     # Все константы, env-переменные, STREET_ALIASES
+├── logger.js                     # Структурированные логи (msg/order/driver/groq/voice/warn/error)
 ├── handlers/
-│   ├── router.js         # Роутинг: new → client/driver/admin
-│   ├── clientHandler.js  # FSM клиента: idle→confirming→waiting_driver→in_trip
-│   ├── driverHandler.js  # FSM водителя + регистрация + редактирование
-│   └── adminHandler.js   # Панель администратора
+│   ├── router.js                 # Роутинг: new → client/driver/admin, parse webhook
+│   ├── clientHandler.js          # FSM клиента: координатор
+│   ├── clientOrderHandler.js     # Клиент: обработка заказа (confirming, waiting, in_trip)
+│   ├── clientInfoHandler.js      # Клиент: /help, /stats, профиль
+│   ├── clientProfileHandler.js   # Клиент: дом/работа/избранные адреса
+│   ├── driverHandler.js          # FSM водителя: координатор
+│   ├── driverCommandHandler.js   # Водитель: онлайн/офлайн/статистика/faq
+│   ├── driverOrderHandler.js     # Водитель: принял/прибыл/свободен/ложный
+│   ├── driverRegistrationHandler.js # Водитель: регистрация + редактирование
+│   └── adminHandler.js           # Панель администратора
 ├── modules/
-│   ├── orderEngine.js    # create/accept/arrived/complete/cancel/falseCall
-│   ├── driverManager.js  # goOnline/goOffline/getNextDriver/afterTrip
-│   ├── notificationService.js  # Все WhatsApp-уведомления
-│   ├── tariffEngine.js   # Поиск тарифа по ключевым словам
-│   ├── addressDetector.js # isAddress() через БД + Groq fallback
-│   ├── favoriteAddresses.js   # Дом/работа/избранное
-│   ├── smartReply.js     # Groq ответы клиентам и водителям
-│   ├── greetingService.js     # Groq приветствия
-│   ├── voiceRecognizer.js     # Groq Whisper транскрипция
-│   ├── chatRelay.js      # Анонимный чат клиент↔водитель
-│   ├── weatherService.js # OpenWeather API
-│   └── timerService.js   # cron-задачи (node-cron)
+│   ├── orderEngine.js            # create/accept/arrived/complete/cancel/falseCall
+│   ├── driverManager.js          # goOnline/goOffline/getNextDriver/afterTrip
+│   ├── notificationService.js    # Все WhatsApp-уведомления
+│   ├── tariffEngine.js           # Поиск тарифа по ключевым словам
+│   ├── addressDetector.js        # isAddress() через БД + Groq fallback
+│   ├── favoriteAddresses.js      # Дом/работа/избранное
+│   ├── smartReply.js             # Groq ответы клиентам и водителям
+│   ├── greetingService.js        # Groq приветствия
+│   ├── voiceRecognizer.js        # Groq Whisper транскрипция
+│   ├── voiceCommandHandler.js    # Обработка голосовых команд водителей
+│   ├── voiceCommands.js          # Ключевые слова голосовых команд
+│   ├── voiceUtils.js             # Вспомогательные утилиты для голоса
+│   ├── chatRelay.js              # Анонимный чат клиент↔водитель
+│   ├── weatherService.js         # OpenWeather API
+│   ├── scheduleParser.js         # Парсинг времени предзаказа ("завтра в 9")
+│   ├── stateMachine.js           # FSM-валидация: VALID_STATES, transition(), reset()
+│   ├── prompts.js                # Groq промпты (вынесены отдельно)
+│   ├── testLogger.js             # Лог подозрительных событий (suspicious())
+│   └── timerService.js           # cron-задачи: авто-отмена, мониторинг, предзаказы
 ├── db/
-│   ├── index.js          # pg Pool (max: 10, SSL, family: 4)
-│   ├── queries.js        # Все DB-запросы с whitelist-защитой
-│   └── schema.sql        # Начальная схема (миграции в Supabase)
+│   ├── index.js                  # pg Pool (max: 10, SSL, family: 4)
+│   ├── queries.js                # Реэкспорт для обратной совместимости
+│   ├── setup.js                  # Инициализация БД при старте
+│   └── queries/
+│       ├── index.js              # Реэкспорт всех query-модулей
+│       ├── userQueries.js        # getUser/createUser/updateUser/blacklist
+│       ├── sessionQueries.js     # getSession/setSession/clearSession
+│       ├── driverQueries.js      # getDriver/createDriver/updateDriver
+│       ├── orderQueries.js       # createOrder/getOrder/updateOrder/atomicAccept
+│       ├── tariffQueries.js      # getTariffs/createTariff/updateTariff
+│       ├── adminQueries.js       # admin-специфичные запросы
+│       ├── systemQueries.js      # getSetting/setSetting/getRecentMessageIds
+│       └── utils.js              # Общие утилиты (whitelist-защита полей)
+├── lib/
+│   └── supabaseClient.js         # Supabase JS client (service role key)
 └── whatsapp/
-    └── greenApi.js       # sendText/sendButtons/sendImage/setWebhook
+    └── greenApi.js               # sendText/sendButtons/sendImage/setWebhook
+
+agent/                            # Hermes — автономный агент мониторинга
+├── hermes.js                     # Мониторинг каждые 5 мин (Qwen3 + Claude), CLI: monitor/ask/memory/loop
+├── llm.js                        # Claude claude-sonnet-4-6 с prompt caching
+├── memory.js                     # CRUD agent_memory: getAll/getCritical/logTask/stats
+├── tools.js                      # ssh/getLogs/getBotStats/askGroq/askClaude
+└── schema.sql                    # SQL для agent_memory/agent_conversations/agent_tasks
+
+migrations/
+└── 001_scheduled_reminder_and_agent_tables.sql
+
+tools/
+├── setup_monitoring.js           # UptimeRobot скрипт
+└── tariff_calculator.js
 ```
 
 ## Основной флоу заказа
 
 ```
 Клиент пишет адрес
-  → isAddress() → handleNewOrder()
+  → isAddress() → clientOrderHandler
   → tariffEngine.getPrice()
   → session: confirming
+  → scheduleParser.detectInlineSchedule() — детект "завтра в 9" inline
   → Клиент подтверждает
   → orderEngine.create()
     → createOrder() в БД
-    → session: waiting_driver
-    → dispatch_queue() или dispatch_first()
+    → если scheduled_time → session: scheduled (ожидание)
+    → иначе session: waiting_driver
+    → dispatch_queue()
       → driverNewOrder() (уведомление + кнопки)
-      → setTimeout 60s → penalizeSkip() → следующий водитель
+      → setTimeout 40s → penalizeSkip() → следующий водитель
   → Водитель: принял → accept()
-    → atomicAcceptOrder() (атомарный UPDATE)
+    → atomicAcceptOrder() (атомарный UPDATE — race-condition защита)
     → clientDriverFound() (фото + инфо)
     → session: in_trip
   → Водитель: прибыл → arrived()
@@ -76,6 +119,7 @@ src/
     → incrementTripCount()
     → activateReferral()
     → clientCompleted() (с Groq farewell)
+    → session: waiting_rating → клиент оценивает
     → driverManager.afterTrip()
 ```
 
@@ -94,20 +138,25 @@ src/
 - `waiting_driver` — поиск водителя
 - `in_trip` — в поездке
 - `chat_mode` — чат с водителем
-- `intercity_pickup` → `intercity_time` → `intercity_confirm` — межгород
+- `waiting_rating` — запрос оценки после поездки
+- `cancel_client_reason` — клиент выбирает причину отмены
+- `schedule_time` → `scheduled_confirm` → `scheduled` — предзаказ
+- `intercity_pickup` → `intercity_confirm` — межгород (состояния `intercity_time` в коде нет)
 
 ### Водитель
 - `idle` — ожидание (+ `ctx.pending_order_id` = входящий заказ)
 - `driver_as_client` — водитель заказывает такси
 - `driver_chat` — чат с клиентом
-- `reg_name/photo/make/plate/color` — регистрация
-- `edit_name/car/photo/color` — редактирование
+- `cancel_reason` — водитель выбирает причину отмены
+- `reg_name/reg_photo/reg_make/reg_plate/reg_color` — регистрация (5 шагов)
+- `edit_name/edit_car/edit_photo/edit_color` — редактирование профиля
 
 ### Админ
 - `admin_mode` — панель
 - `admin_add_1/2/3/4` — добавление тарифа
-- `admin_edit_pick/field` — редактирование тарифа
+- `admin_edit_pick/admin_edit_field` — редактирование тарифа
 - `admin_del_pick` — удаление тарифа
+- `admin_exit` — выход из панели (перед сбросом в idle)
 
 ## Деплой на сервер
 
@@ -120,23 +169,34 @@ ssh -i ~/.ssh/google_compute_engine alphadexkz@34.40.3.202
 cd ~/osakarovka-bot
 git pull
 npm install --production
-pm2 restart osakarovka-bot
-pm2 logs --lines 20
+pm2 restart ecosystem.config.js   # или: pm2 restart osakarovka-bot hermes-agent
+pm2 logs --lines 30
+
+# Первый запуск:
+pm2 start ecosystem.config.js
+pm2 save
 ```
+
+PM2 управляет двумя процессами:
+- `osakarovka-bot` — основной WhatsApp-бот (`src/index.js`)
+- `hermes-agent` — автономный Telegram-мониторинг (`agent/hermes.js loop`)
 
 ## Переменные окружения (.env)
 
 ```
-GREEN_API_ID=        # ID инстанса Green API
-GREEN_API_TOKEN=     # Token Green API
-DATABASE_URL=        # PostgreSQL connection string (Supabase)
-ADMIN_PIN=           # PIN для входа в админ панель (/admin PIN)
-DRIVER_CODE=         # Код для регистрации водителей
-GROQ_API_KEY=        # Groq AI API key
-WEATHER_API_KEY=     # OpenWeatherMap API key
-DGIS_API_KEY=        # 2GIS API key (для import_2gis.js)
-SUPABASE_URL=        # https://jgnfjawqacmaqhgpsbcj.supabase.co
-SUPABASE_SERVICE_KEY=# Supabase service role key
+GREEN_API_ID=         # ID инстанса Green API
+GREEN_API_TOKEN=      # Token Green API
+DATABASE_URL=         # PostgreSQL connection string (Supabase)
+ADMIN_PIN=            # PIN для входа в админ панель (/admin PIN)
+DRIVER_CODE=          # Код для регистрации водителей
+GROQ_API_KEY=         # Groq AI API key
+ANTHROPIC_API_KEY=    # Claude API key (agent/tools.js — глубокий анализ ошибок)
+WEATHER_API_KEY=      # OpenWeatherMap API key
+DGIS_API_KEY=         # 2GIS API key (для import_2gis.js)
+SUPABASE_URL=         # https://jgnfjawqacmaqhgpsbcj.supabase.co
+SUPABASE_SERVICE_KEY= # Supabase service role key
+NIGHT_TARIFF_START=   # Начало ночного тарифа (default: 23)
+NIGHT_TARIFF_END=     # Конец ночного тарифа (default: 7)
 PORT=3000
 ```
 
@@ -144,41 +204,71 @@ PORT=3000
 
 | Константа | Значение | Описание |
 |-----------|----------|----------|
-| `ACCEPT_TIMEOUT_MS` | 60000 | 60 сек на принятие заказа |
-| `ARRIVE_TIMEOUT_MS` | 720000 | 12 мин на «Прибыл» |
-| `INACTIVITY_MS` | 1800000 | 30 мин → авто Офлайн |
-| `PAUSE_MS` | 15000 | Пауза между водителями |
+| `ACCEPT_TIMEOUT_MS` | 40 000 | 40 сек на принятие заказа |
+| `ARRIVE_TIMEOUT_MS` | 720 000 | 12 мин на «Прибыл» |
+| `INACTIVITY_MS` | 1 800 000 | 30 мин → авто Офлайн |
+| `PAUSE_MS` | 3 000 | 3 сек пауза между водителями |
 | `MAX_CIRCLES` | 3 | Кругов в очереди |
-| `NIGHT_START` | 23 | Начало ночного тарифа |
-| `NIGHT_END` | 7 | Конец ночного тарифа |
-| `CITY_PRICE` | 500 | Цена по умолчанию (тг) |
+| `NIGHT_START` | 23 (env) | Начало ночного тарифа |
+| `NIGHT_END` | 7 (env) | Конец ночного тарифа |
+| `CITY_PRICE` | 500 | Цена внутри Осакаровки (тг) |
 | `FREE_TRIP_EVERY` | 10 | Каждая N-я поездка бесплатно |
-| `FALSE_CALL_PRICE` | 250 | Штраф за ложный вызов |
-| `LOW_RATING` | 3.0 | Порог низкого рейтинга |
+| `FALSE_CALL_PRICE` | 250 | Штраф за ложный вызов (тг) |
+| `LOW_RATING` | 3.0 | Рейтинг ниже → пропуск каждого 2-го |
+| `STREET_ALIASES` | 16 пар | Новые → старые названия улиц |
 
 ## Известные ограничения и нюансы
 
 1. **Баланс водителя**: `order_balance = 999999` = бесплатный пробный период (баланс не списывается)
-2. **Режимы распределения**: `queue` (очередь по позиции) или `first` (кто первый принял)
+2. **Режим распределения**: `settings.distribution_mode` = `queue` (по позиции) или `broadcast`
 3. **Green API кнопки**: максимум 3 кнопки; fallback на текст при неудаче
 4. **Rate limit**: 30 сообщений за 60 сек (in-memory, сбрасывается при рестарте)
-5. **Брутфорс admin**: 5 попыток → блок 15 мин (in-memory)
+5. **Брутфорс admin**: 5 попыток → блок 15 мин (таблица `admin_attempts` — переживает рестарт)
 6. **RLS в Supabase**: отключён; бот использует service role key
-7. **Таймер**: зависшие заказы (>10 мин в `searching`) → автоотмена каждые 5 мин
-8. **Swap**: на сервере нет swap-памяти
+7. **Зависшие заказы**: >10 мин в `searching` → `orderEngine.cancel()` каждые 5 мин
+8. **Дедупликация**: Green API дублирует вебхуки → in-memory Set + таблица `message_dedup`
+9. **dispatch_queue**: итеративный while-loop (не рекурсия) — исправлен AUDIT-10
+10. **Swap**: на сервере нет swap-памяти (e2-micro) — риск OOM при пике
+11. **stateMachine.js**: мёртвый код — файл существует но нигде не импортируется
+12. **Timezone**: сервер UTC+1/2, бот использует UTC+5 Almaty через `Date.now() + 5*3600_000`
+13. **Webhook security**: проверяется только `instanceData.idInstance` — нет HMAC
+14. **getSetting()**: кеш 60 сек (adminQueries.js) — при изменении через setSetting() кеш чистится
+15. **intercity_time**: состояния нет в коде, flow: `intercity_pickup → intercity_confirm`
 
-## Команды водителей (ключевые слова)
+## Hermes — автономный агент мониторинга
+
+`agent/hermes.js` запускается отдельным PM2-процессом и каждые 5 минут:
+- Проверяет статус бота через SSH (pm2 list, pm2 logs, ошибки)
+- Анализирует ситуацию через Qwen3-32b (быстрый, дешёвый LLM)
+- При ошибках в логах — обращается к Claude claude-sonnet-4-6 (`agent/tools.js:askClaude`)
+- Запоминает паттерны в таблице `agent_memory` (важность 1-10)
+- Алерты пишет в `agent_memory` (ключ `alert_current`) + stdout
+
+**CLI команды:**
+```bash
+node agent/hermes.js monitor   # Один цикл мониторинга
+node agent/hermes.js ask "вопрос"  # Спросить агента
+node agent/hermes.js memory    # Показать память
+node agent/hermes.js stats     # Статистика бота
+node agent/hermes.js loop      # Непрерывный мониторинг (PM2)
+```
+
+> Telegram-интерфейс (`agent/index.js`) удалён — не использовался.
+
+## Команды водителей (ключевые слова в router.js)
 
 | Команда | Ключевые слова |
 |---------|----------------|
-| На линию | на линию, онлайн, старт, жұмыс, выхожу |
+| На линию | на линию, выхожу, начинаю, работаю, онлайн, старт, начать, жұмыс, жұмысқа, линияға шығам, шығамын |
 | С линии | с линии, офлайн, стоп, отдых, аяқтадым |
-| Принял | принял, беру, ok, ок, да, аламын |
-| Прибыл | прибыл, на месте, стою, келдім |
-| Свободен | свободен, готово, доехали, бостымын |
-| Ложный | ложный, нет клиента, пусто, жалған |
-| Пропустить | пропустить, следующий, откізу |
-| Статистика | статистика, стат, қанша, заработок |
+| Принял | принял, принять, беру, аламын, принимаю |
+| Прибыл | прибыл, приехал, на месте, подъехал, стою, келдім |
+| Свободен | свободен, завершил, бостымын, доехали, готово |
+| Ложный | ложный, нет клиента, жалған |
+| Пропустить | пропустить, пропуск, откізу |
+| Статистика | статистика, стат, итоги, заработок, қанша |
+| Очередь | очередь, позиция, кезек |
+| Прочее | faq, фак, перерыв |
 
 ## Важные DB-запросы для отладки
 
@@ -187,15 +277,27 @@ PORT=3000
 SELECT * FROM orders WHERE status NOT IN ('completed','cancelled') ORDER BY created_at DESC;
 
 -- Онлайн водители
-SELECT d.full_name, d.status, d.queue_position, d.order_balance, u.phone 
-FROM drivers d JOIN users u ON d.user_id=u.id 
+SELECT d.full_name, d.status, d.queue_position, d.order_balance, u.phone
+FROM drivers d JOIN users u ON d.user_id=u.id
 WHERE d.status IN ('online','busy') ORDER BY d.queue_position;
 
 -- Зависшие сессии
 SELECT * FROM sessions WHERE state != 'idle' ORDER BY updated_at;
 
+-- Предзаказы ожидающие запуска
+SELECT id, destination, scheduled_time, scheduled_reminder_sent
+FROM orders WHERE status = 'scheduled' ORDER BY scheduled_time;
+
 -- Статистика сегодня
 SELECT COUNT(*) FILTER(WHERE status='completed') AS done,
        COALESCE(SUM(price) FILTER(WHERE status='completed'),0) AS revenue
 FROM orders WHERE created_at::date=CURRENT_DATE;
+
+-- Память агента (критичное)
+SELECT category, key, content, importance FROM agent_memory
+WHERE importance >= 8 ORDER BY importance DESC;
+
+-- Задачи агента для Claude Code
+SELECT id, description, status, created_at FROM agent_tasks
+WHERE status = 'pending' ORDER BY created_at;
 ```

@@ -96,14 +96,14 @@ const moveDriverToEndOfQueue = async (phone) => {
 }
 
 const deductDriverBalance = async (driverId) => {
-  // 999999 = бесплатный пробный период — баланс не списываем
-  const check = await db.query('SELECT order_balance FROM drivers WHERE id=$1', [driverId])
-  const bal = check.rows[0]?.order_balance
-  if (bal >= 999999) return 999999
-
+  // Атомарный UPDATE — исключает TOCTOU race condition между SELECT и UPDATE
+  // 999999 = бесплатный пробный период — баланс не трогаем
   const r = await db.query(
-    `UPDATE drivers SET order_balance=order_balance-1
-     WHERE id=$1 AND order_balance>0 RETURNING order_balance`,
+    `UPDATE drivers SET order_balance =
+       CASE WHEN order_balance >= 999999 THEN order_balance
+            WHEN order_balance > 0       THEN order_balance - 1
+            ELSE 0 END
+     WHERE id=$1 RETURNING order_balance`,
     [driverId]
   )
   return r.rows[0]?.order_balance

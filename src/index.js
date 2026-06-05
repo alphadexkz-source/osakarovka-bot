@@ -21,7 +21,7 @@ const wa      = require('./whatsapp/greenApi');
 const { getRecentMessageIds, getSetting, setSetting } = require('./db/queries');
 
 const app = express();
-app.use(express.json({ limit: '5mb' }));
+app.use(express.json({ limit: '100kb' }));
 
 // ─── Rate limiting (в памяти, сбрасывается при рестарте) ──────
 const requestCounts = new Map(); // phone → { count, resetAt }
