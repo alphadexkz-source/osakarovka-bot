@@ -90,38 +90,94 @@ const driverInactiveOffline = async (phone) => wa.sendText(phone, `😴 Офла
 const driverLongWait      = async (phone) => wa.sendText(phone, `ℹ️ Вы уже час на линии, но заказов ещё не было.\nТихий день — так бывает. Вы в очереди, заказы придут! 🙂`);
 
 const driverStats = async (phone, driver, stats) => {
-  const icons  = {online:'🟢',busy:'🔴',offline:'⚫',blocked:'🚫'};
-  const labels = {online:'На линии',busy:'В поездке',offline:'Офлайн',blocked:'Заблокирован'};
-  const week = await db.query(
-    `SELECT COUNT(*) FILTER(WHERE status='completed') AS completed, COALESCE(SUM(price) FILTER(WHERE status='completed'),0) AS earned FROM orders WHERE driver_id=$1 AND created_at >= NOW() - INTERVAL '7 days'`,
-    [driver.id]
-  ).then(r => r.rows[0]).catch(() => ({completed:0,earned:0}));
-  const month = await db.query(
-    `SELECT COUNT(*) FILTER(WHERE status='completed') AS completed, COALESCE(SUM(price) FILTER(WHERE status='completed'),0) AS earned FROM orders WHERE driver_id=$1 AND created_at >= NOW() - INTERVAL '30 days'`,
-    [driver.id]
-  ).then(r => r.rows[0]).catch(() => ({completed:0,earned:0}));
-  const ranking = await db.query(
-    `SELECT driver_id, COUNT(*) AS trips FROM orders WHERE status='completed' AND created_at >= NOW() - INTERVAL '30 days' GROUP BY driver_id ORDER BY trips DESC`,
-  ).then(r => r.rows).catch(() => []);
+  const icons  = {online:'🟢', busy:'🔴', offline:'⚫', blocked:'🚫'};
+  const labels = {online:'На линии', busy:'В поездке', offline:'Офлайн', blocked:'Заблокирован'};
+
+  const [week, month, ranking, queueRow, bestDay] = await Promise.all([
+    db.query(
+      `SELECT COUNT(*) FILTER(WHERE status='completed') AS completed,
+              COALESCE(SUM(price) FILTER(WHERE status='completed'),0) AS earned
+       FROM orders WHERE driver_id=$1 AND created_at >= NOW() - INTERVAL '7 days'`,
+      [driver.id]
+    ).then(r => r.rows[0]).catch(() => ({completed:0, earned:0})),
+
+    db.query(
+      `SELECT COUNT(*) FILTER(WHERE status='completed') AS completed,
+              COALESCE(SUM(price) FILTER(WHERE status='completed'),0) AS earned
+       FROM orders WHERE driver_id=$1 AND created_at >= NOW() - INTERVAL '30 days'`,
+      [driver.id]
+    ).then(r => r.rows[0]).catch(() => ({completed:0, earned:0})),
+
+    db.query(
+      `SELECT driver_id, COUNT(*) AS trips
+       FROM orders WHERE status='completed' AND created_at >= NOW() - INTERVAL '30 days'
+       GROUP BY driver_id ORDER BY trips DESC`
+    ).then(r => r.rows).catch(() => []),
+
+    driver.status === 'online'
+      ? db.query(
+          `SELECT
+             (SELECT COUNT(*)+1 FROM drivers d2 WHERE d2.status='online'
+                AND d2.queue_position < (SELECT queue_position FROM drivers WHERE id=$1)) AS my_pos,
+             (SELECT COUNT(*) FROM drivers WHERE status='online') AS total`,
+          [driver.id]
+        ).then(r => r.rows[0]).catch(() => null)
+      : Promise.resolve(null),
+
+    db.query(
+      `SELECT DATE(created_at) AS day, COUNT(*) AS trips, COALESCE(SUM(price),0) AS earned
+       FROM orders WHERE driver_id=$1 AND status='completed'
+         AND created_at >= NOW() - INTERVAL '7 days'
+       GROUP BY day ORDER BY trips DESC LIMIT 1`,
+      [driver.id]
+    ).then(r => r.rows[0]).catch(() => null),
+  ]);
+
+  const queueLine = queueRow
+    ? `📋 Очередь: *${queueRow.my_pos}-й* из *${queueRow.total}* водителей онлайн\n\n`
+    : '';
+
+  const carParts = [driver.car_make, driver.car_color, driver.car_plate].filter(Boolean);
+  const carLine = carParts.length ? `🚗 ${carParts.join(' · ')}\n` : '';
+
+  const todayEarned = Number(stats.earned || 0);
+  const todayEarnedLine = todayEarned > 0 ? `  💰 *${todayEarned.toLocaleString()} тг*` : '';
+
+  const bestDayLine = bestDay
+    ? `\n📅 Лучший день: *${new Date(bestDay.day).toLocaleDateString('ru-RU', {weekday:'short', day:'numeric', month:'short'})}* — ${bestDay.trips} поезд., ${Number(bestDay.earned).toLocaleString()} тг`
+    : '';
+
+  const avgDay = Number(month.completed) > 0 ? Math.round(Number(month.earned) / 30) : 0;
+
   const myPos = ranking.findIndex(r => parseInt(r.driver_id) === parseInt(driver.id));
-  const rankLine = myPos >= 0 ? `🏆 Рейтинг: *${myPos+1}-е место* из ${ranking.length} водителей` : `🏆 Рейтинг: ещё нет данных`;
-  const avgDay = month.completed > 0 ? Math.round(Number(month.earned) / 30) : 0;
-  const bestDay = await db.query(
-    `SELECT DATE(created_at) AS day, COUNT(*) AS trips, COALESCE(SUM(price),0) AS earned FROM orders WHERE driver_id=$1 AND status='completed' AND created_at >= NOW() - INTERVAL '7 days' GROUP BY day ORDER BY trips DESC LIMIT 1`,
-    [driver.id]
-  ).then(r => r.rows[0]).catch(() => null);
-  const bestDayLine = bestDay ? `📅 Лучший день: *${new Date(bestDay.day).toLocaleDateString('ru-RU',{weekday:'short',day:'numeric',month:'short'})}* — ${bestDay.trips} поездок, ${Number(bestDay.earned).toLocaleString()} тг` : '';
-  const bal = driver.order_balance >= 999999 ? '∞ (пробный период)' : `${driver.order_balance} заказов`;
-  const rating = driver.rating ? Number(driver.rating).toFixed(1) : '5.0';
+  const rankLine = myPos >= 0
+    ? `🏆 *${myPos + 1}-е место* из ${ranking.length} водителей (30 дней)`
+    : `🏆 Рейтинг: нет данных за 30 дней`;
+
+  const ratingVal = driver.rating ? Number(driver.rating).toFixed(1) : '5.0';
   const ratingCount = driver.rating_count || 0;
-  const ratingStars = rating >= 4.5 ? '⭐⭐⭐⭐⭐' : rating >= 3.5 ? '⭐⭐⭐⭐' : rating >= 2.5 ? '⭐⭐⭐' : '⭐⭐';
-  const ratingLine = `${ratingStars} *${rating}/5.0* (${ratingCount} оценок)`;
+  const ratingNum = Number(ratingVal);
+  const stars = ratingNum >= 4.5 ? '⭐⭐⭐⭐⭐'
+    : ratingNum >= 3.5 ? '⭐⭐⭐⭐'
+    : ratingNum >= 2.5 ? '⭐⭐⭐' : '⭐⭐';
+
+  const bal = driver.order_balance >= 999999 ? '∞ (пробный период)' : `${driver.order_balance} заказов`;
+  const balWarn = driver.order_balance > 0 && driver.order_balance < 999999 && driver.order_balance <= 5
+    ? ' ⚠️ *Пополните!*' : '';
+
+  const icon = icons[driver.status] || '⚫';
+  const label = labels[driver.status] || 'Офлайн';
+
   await wa.sendText(phone,
-    `📊 *Статистика — ${driver.full_name}*\n\n` +
-    `*Сегодня:*\n🚖 ${stats.completed||0} поездок | 💰 ${Number(stats.earned||0).toLocaleString()} тг\n\n` +
-    `*За 7 дней:*\n🚖 ${week.completed||0} поездок | 💰 ${Number(week.earned||0).toLocaleString()} тг\n${bestDayLine ? bestDayLine+'\n' : ''}` +
-    `\n*За 30 дней:*\n🚖 ${month.completed||0} поездок | 💰 ${Number(month.earned||0).toLocaleString()} тг\n📈 Средний заработок: *${avgDay.toLocaleString()} тг/день*\n\n` +
-    `${rankLine}\n${ratingLine}\n📦 Баланс: *${bal}*\n${icons[driver.status]||'⚫'} ${labels[driver.status]||'Офлайн'}`
+    `📊 *${driver.full_name}*  ${icon} ${label}\n${carLine}\n` +
+    queueLine +
+    `*Сегодня:*\n🚖 *${stats.completed || 0}* поездок${todayEarnedLine}\n\n` +
+    `*За 7 дней:*\n🚖 *${week.completed || 0}* поездок  💰 *${Number(week.earned || 0).toLocaleString()} тг*${bestDayLine}\n\n` +
+    `*За 30 дней:*\n🚖 *${month.completed || 0}* поездок  💰 *${Number(month.earned || 0).toLocaleString()} тг*\n` +
+    `📈 Средний заработок: *${avgDay.toLocaleString()} тг/день*\n\n` +
+    `${rankLine}\n` +
+    `${stars} *${ratingVal}/5.0* (${ratingCount} оценок)\n\n` +
+    `📦 Баланс: *${bal}*${balWarn}`
   );
 };
 
