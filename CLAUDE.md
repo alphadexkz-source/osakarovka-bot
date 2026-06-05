@@ -17,8 +17,9 @@
 | **Supabase** | `https://jgnfjawqacmaqhgpsbcj.supabase.co`, project `eOsakarovka Project2` |
 | **DB** | `db.jgnfjawqacmaqhgpsbcj.supabase.co`, PostgreSQL 17, eu-west-1 |
 | **Green API** | Instance `7107636283` |
-| **Groq** | `llama-3.3-70b-versatile` (чат), `qwen/qwen3-32b` (Hermes мониторинг), `whisper-large-v3` (голос) |
-| **Claude** | `claude-sonnet-4-6` (agent/tools.js — глубокий анализ ошибок) |
+| **Groq** | `llama-3.3-70b-versatile` (addressDetector), `llama-3.1-8b-instant` (scheduleParser), `qwen/qwen3-32b` (Hermes мониторинг), `whisper-large-v3` (голос) |
+| **Claude Haiku** | `claude-haiku-4-5-20251001` (smartReply, greetingService — чат с клиентами, имя: Айгуль) |
+| **Claude Sonnet** | `claude-sonnet-4-6` (agent/llm.js — Hermes мозг, agent/tools.js — анализ ошибок) |
 | **GCP Project** | `project-71dedb61-45a3-4e5c-986` |
 
 ## Архитектура
@@ -74,6 +75,7 @@ src/
 │       ├── systemQueries.js      # isDuplicateMessage/getRecentMessageIds/cleanupMessageDedup
 │       └── utils.js              # Общие утилиты (whitelist-защита полей)
 ├── lib/
+│   ├── claudeApi.js              # Claude Haiku с prompt caching (smartReply, greetingService)
 │   └── supabaseClient.js         # Supabase JS client (service role key)
 └── whatsapp/
     └── greenApi.js               # sendText/sendButtons/sendImage/setWebhook
@@ -86,7 +88,8 @@ agent/                            # Hermes — автономный агент �
 └── schema.sql                    # SQL для agent_memory/agent_conversations/agent_tasks
 
 migrations/
-└── 001_scheduled_reminder_and_agent_tables.sql
+├── 001_scheduled_reminder_and_agent_tables.sql
+└── 002_performance_indexes.sql   # 7 индексов БД (searching, scheduled, accepted, dispatched...)
 
 tools/
 ├── setup_monitoring.js           # UptimeRobot скрипт
@@ -177,9 +180,10 @@ pm2 start ecosystem.config.js
 pm2 save
 ```
 
-PM2 управляет двумя процессами:
+PM2 управляет одним процессом:
 - `osakarovka-bot` — основной WhatsApp-бот (`src/index.js`)
-- `hermes-agent` — автономный мониторинг (`agent/hermes.js loop`)
+
+> `hermes-agent` **отключён** из PM2 из-за ложных алертов. Включить вручную: `pm2 start hermes-agent -- loop`
 
 ## Переменные окружения (.env)
 
@@ -313,7 +317,7 @@ ON CONFLICT(key) DO UPDATE SET value=EXCLUDED.value;
 |---|----------|------|--------|
 | TD-01 | Нет транзакций в `complete()` — 12+ последовательных запросов без rollback | `orderEngine.js:257` | 2-3 ч |
 | TD-02 | `checkDispatchTimeouts` при рестарте отменяет заказ вместо `resumeDispatch` | `timerService.js:134` | 2 ч |
-| TD-03 | 5 недостающих индексов БД (searching, scheduled, accepted, dispatched, driver_date) | SQL миграция | 15 мин |
+| ~~TD-03~~ | ~~5 недостающих индексов БД~~ | ✅ Исправлено — `migrations/002_performance_indexes.sql` (7 индексов) |
 | TD-04 | Webhook без HMAC — `instanceData.idInstance` подделывается (CVSS 8.6) | `src/index.js:73` | 1-2 ч |
 
 ### 🟡 Средний приоритет
@@ -325,7 +329,7 @@ ON CONFLICT(key) DO UPDATE SET value=EXCLUDED.value;
 | TD-08 | Межгород: цена ищется по `destination`, не по маршруту | `clientOrderHandler.js:244` |
 | ~~TD-09~~ | ~~`_groqCounts` Map никогда не чистится~~ | ✅ Исправлено — `_rateLimits` с setInterval |
 | TD-10 | `addressDetector` cache — unbounded Map (нет MAX_SIZE) | `addressDetector.js` |
-| TD-11 | Hermes: ложные алерты (SSH loopback, тарифы) | `agent/hermes.js` — Qwen3 переоценивает |
+| ~~TD-11~~ | ~~Hermes: ложные алерты~~ | ✅ Временно решено — `hermes-agent` отключён из PM2 (`ecosystem.config.js`) |
 
 ---
 
