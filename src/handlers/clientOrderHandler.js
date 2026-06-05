@@ -183,9 +183,12 @@ const handleNewOrder = async (phone, name, text, user) => {
   const pi = await tariff.getPrice(text)
   const nightNote = pi.isNight ? '\n🌙 *Ночной тариф*' : ''
   const freeNote = user && (user.trip_count+1) % config.FREE_TRIP_EVERY === 0 ? '\n\n🎁 *Эта поездка будет БЕСПЛАТНОЙ!*' : ''
+  const debtNote = user?.debt_tg > 0
+    ? `\n\n⚠️ *Долг: ${user.debt_tg} тг*\n${user.debt_reason || 'Нарушение'}\nОплатите водителю при поездке.`
+    : ''
   const displayWithAlias = addStreetAlias(displayAddress)
   await wa.sendButtons(phone,
-    '🚖 *Ваш заказ:*\n\n📍 Куда: *' + displayWithAlias + '*\n💰 Цена: *' + pi.price + ' тг*' + nightNote + freeNote + '\n\nВсё верно?',
+    '🚖 *Ваш заказ:*\n\n📍 Куда: *' + displayWithAlias + '*\n💰 Цена: *' + pi.price + ' тг*' + nightNote + freeNote + debtNote + '\n\nВсё верно?',
     [{ id:'confirm_order', text:'✅ Да, поехали!' }, { id:'schedule_it', text:'📅 На потом' }, { id:'cancel_new', text:'❌ Отмена' }])
   await q.setSession(phone, 'confirming', { destination: displayAddress, price: pi.price, tariff_id: pi.tariff?.id||null })
 }

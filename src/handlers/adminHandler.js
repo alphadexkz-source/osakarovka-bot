@@ -46,7 +46,7 @@ const adminMenu = () =>
   `🚖 *Заказы:* Активные заказы\n\n` +
   `👤 *Клиент:* Клиент 79001234567\n\n` +
   `📢 *Рассылка:* Рассылка клиенты [текст] | Рассылка водители [текст]\n\n` +
-  `🚫 *ЧС:* Блок 79001234567 | Разблок 79001234567\n\n` +
+  `🚫 *ЧС:* Чёрный список | Блок 79001234567 | Разблок 79001234567 | Долг снять 79001234567\n\n` +
   `⚙️ *Режим:* Режим очередь | Режим первый\n\n` +
   `🎁 *Акции:* Акции | Лояльность вкл/выкл\n\n` +
   `*Выход* — выйти из панели`;
@@ -163,18 +163,57 @@ const handle = async (phone, msg, session) => {
     if (lo.startsWith('клиент ')) {
       const target = text.split(/\s+/)[1]?.replace(/\D/g, '');
       if (!target) { await wa.sendText(phone, '❌ Формат: *Клиент 79001234567*'); return; }
-      const c = await q.getClientStats(target);
+      const [c, fullUser] = await Promise.all([q.getClientStats(target), q.getUser(target)]);
       if (!c) { await wa.sendText(phone, `❌ Клиент ${target} не найден.`); return; }
       const lastTrip = c.last_trip ? new Date(c.last_trip).toLocaleDateString('ru-RU') : 'нет';
-      const status = c.is_blacklisted ? '🚫 Заблокирован' : '✅ Активен';
+      let status = c.is_blacklisted ? '🚫 Заблокирован' : '✅ Активен';
+      if (fullUser?.blacklisted_until) {
+        const untilStr = new Date(fullUser.blacklisted_until).toLocaleString('ru-RU', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
+        status = `⏸ Временный блок до *${untilStr}*`;
+        if (fullUser.blacklist_reason) status += `\nПричина: ${fullUser.blacklist_reason}`;
+      } else if (c.is_blacklisted && fullUser?.blacklist_reason) {
+        status += `\nПричина: ${fullUser.blacklist_reason}`;
+      }
+      const debtLine = fullUser?.debt_tg > 0
+        ? `\n💸 Долг: *${fullUser.debt_tg} тг* (${fullUser.debt_reason || 'нарушение'})`
+        : '';
       await wa.sendText(phone,
         `👤 *${c.name || 'Без имени'}*\n` +
         `📱 ${c.phone}\n` +
         `🚖 Поездок: *${c.trip_count}* (завершено: ${c.completed})\n` +
         `💰 Потрачено: *${Number(c.spent).toLocaleString()} тг*\n` +
-        `📅 Последняя: *${lastTrip}*\n` +
+        `📅 Последняя: *${lastTrip}*${debtLine}\n` +
         `${status}`
       );
+      return;
+    }
+
+    // ── ЧЁРНЫЙ СПИСОК ─────────────────────────────────────────
+    if (lo === 'чёрный список' || lo === 'черный список') {
+      const blocked = await q.getBlockedUsers();
+      if (!blocked.length) { await wa.sendText(phone, '✅ Чёрный список пуст.'); return; }
+      const lines = blocked.map(u => {
+        const tempUntil = u.blacklisted_until
+          ? ` (до ${new Date(u.blacklisted_until).toLocaleDateString('ru-RU')})`
+          : ' (навсегда)';
+        const reason = u.blacklist_reason ? `\n   Причина: ${u.blacklist_reason}` : '';
+        const debt = u.debt_tg > 0 ? ` | долг ${u.debt_tg} тг` : '';
+        return `🚫 *${u.phone}* — ${u.name || 'без имени'}${tempUntil}${debt}${reason}`;
+      }).join('\n\n');
+      await wa.sendText(phone, `🚫 *Чёрный список (${blocked.length}):*\n\n${lines}`);
+      return;
+    }
+
+    // ── СНЯТЬ ДОЛГ ────────────────────────────────────────────
+    if (lo.startsWith('долг снять')) {
+      const target = text.split(/\s+/).pop().replace(/\D/g, '');
+      if (!target) { await wa.sendText(phone, '❌ Формат: *Долг снять 79001234567*'); return; }
+      const u = await q.getUser(target);
+      if (!u) { await wa.sendText(phone, `❌ Клиент ${target} не найден.`); return; }
+      if (!u.debt_tg) { await wa.sendText(phone, `ℹ️ У клиента ${target} долга нет.`); return; }
+      await q.clearDebt(target);
+      await wa.sendText(phone, `✅ Долг клиента ${target} (${u.debt_tg} тг) снят.`);
+      await wa.sendText(target, '✅ Ваш долг снят администратором.').catch(() => {});
       return;
     }
 

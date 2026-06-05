@@ -241,6 +241,16 @@ const accept = async (orderId, driverPhone) => {
   const updated = await q.getOrder(orderId)
   await notify.clientDriverFound(order.client_phone, driver)
   await notify.driverAccepted(driverPhone, updated)
+
+  // Предупредить водителя если у клиента есть долг
+  const clientForDebt = await q.getUser(order.client_phone)
+  if (clientForDebt?.debt_tg > 0) {
+    await wa.sendText(driverPhone,
+      `⚠️ *Внимание!* У клиента долг *${clientForDebt.debt_tg} тг*.\n` +
+      (clientForDebt.debt_reason ? `Причина: ${clientForDebt.debt_reason}\n` : '') +
+      `Попросите оплатить долг при поездке.`
+    )
+  }
   // arriveTimers убраны — timerService проверяет через getUnwarnedArrivals каждые 2 мин
   return { success: true }
 }
@@ -313,6 +323,7 @@ const complete = async (orderId, driverPhone) => {
 
   // ── После транзакции: логирование, уведомления, сессии, очередь ────────────
   log.order('complete', { orderId, driver: driverPhone, client: order.client_phone, price: order.price, isFree: order.is_free })
+  await q.clearDebt(order.client_phone).catch(() => {})
   await notify.clientCompleted(order.client_phone, order.price, order.is_free, order.destination)
   await q.setSession(order.client_phone, 'idle', {})
 
@@ -416,17 +427,33 @@ const falseCall = async (orderId, driverPhone) => {
   await q.clearSession(driverPhone)
   await q.clearSession(order.client_phone)
   const total = await q.getFalseCallCount(client.id)
-  if (total >= 3) {
-    await q.blacklistUser(order.client_phone, true)
-    await wa.sendText(order.client_phone, 'Ваш аккаунт заблокирован.\nПричина: 3 ложных вызова.\nОбратитесь к администратору.')
-    const adminPhone = await q.getSetting('admin_phone')
-    if (adminPhone) await wa.sendText(adminPhone, 'Клиент ' + order.client_phone + ' заблокирован после ' + total + ' ложных вызовов.')
+  const dateStr = new Date().toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit', year: 'numeric' })
+  await q.addDebt(order.client_phone, config.FALSE_CALL_PRICE, `Ложный вызов от ${dateStr}`)
+  const adminPhone = await q.getSetting('admin_phone')
+
+  if (total >= 5) {
+    await q.blacklistUser(order.client_phone, true, `Систематические ложные вызовы (${total}+)`)
+    await wa.sendText(order.client_phone,
+      `🚫 *Ваш аккаунт заблокирован.*\nПричина: ${total} ложных вызовов.\n\nДолг: *${config.FALSE_CALL_PRICE} тг*.\nОбратитесь к администратору.`
+    )
+    if (adminPhone) await wa.sendText(adminPhone,
+      `🚫 Клиент ${order.client_phone} *заблокирован навсегда*. Ложных вызовов: ${total}.`
+    )
+  } else if (total >= 3) {
+    const until = new Date(Date.now() + 24 * 60 * 60 * 1000)
+    await q.tempBlockUser(order.client_phone, until, `${total} ложных вызова`)
+    const untilStr = until.toLocaleString('ru-RU', { hour: '2-digit', minute: '2-digit', day: 'numeric', month: 'short' })
+    await wa.sendText(order.client_phone,
+      `⏸ *Временный блок на 24 часа.*\nПричина: ${total} ложных вызова.\n\nДолг: *${config.FALSE_CALL_PRICE} тг* — оплатите водителю при следующей поездке.\n\nРазблокировка: *${untilStr}*`
+    )
+    if (adminPhone) await wa.sendText(adminPhone,
+      `⚠️ Клиент ${order.client_phone} заблокирован на 24ч (${total} ложных вызова).`
+    )
   } else {
     await notify.falseCallClient(order.client_phone, config.FALSE_CALL_PRICE, total)
   }
   await notify.falseCallDriver(driverPhone, config.FALSE_CALL_PRICE)
-  const adminPhone = await q.getSetting('admin_phone')
-  await notify.falseCallAdmin(adminPhone, order.client_phone, driver?.full_name, config.FALSE_CALL_PRICE)
+  if (adminPhone) await notify.falseCallAdmin(adminPhone, order.client_phone, driver?.full_name, config.FALSE_CALL_PRICE)
   return { success: true }
 }
 

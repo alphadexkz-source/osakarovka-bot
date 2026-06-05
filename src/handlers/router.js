@@ -106,7 +106,14 @@ const route = async (body) => {
     if (!/^\d{10,15}$/.test(phone)) return;
 
     const user = await q.getUser(phone);
-    if (user?.is_blacklisted) return;
+    if (user?.is_blacklisted) {
+      // Авто-разблок: временный блок истёк
+      if (user.blacklisted_until && new Date(user.blacklisted_until) <= new Date()) {
+        await q.unblockUser(phone)
+      } else {
+        return
+      }
+    }
 
     if (text.startsWith('/admin')) return adminHandler.login(phone, text);
 
