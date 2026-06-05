@@ -231,6 +231,22 @@ const saveRating = async (orderId, clientId, driverId, score) => {
   )
 }
 
+const saveFalseCall = async (orderId, clientId, driverId, fine) => {
+  await db.query(
+    `INSERT INTO false_calls(order_id, client_id, driver_id, fine)
+     VALUES($1,$2,$3,$4)`,
+    [orderId, clientId, driverId ?? null, fine]
+  )
+}
+
+const getFalseCallCount = async (clientId) => {
+  const r = await db.query(
+    `SELECT COUNT(*) AS cnt FROM false_calls WHERE client_id=$1`,
+    [clientId]
+  )
+  return parseInt(r.rows[0]?.cnt || 0)
+}
+
 module.exports = {
   createOrder,
   getOrder,
@@ -250,6 +266,8 @@ module.exports = {
   setArriveWarned,
   getUnwarnedArrivals,
   saveRating,
+  saveFalseCall,
+  getFalseCallCount,
   getScheduledOrdersDue,
   getScheduledOrdersSoon,
 }

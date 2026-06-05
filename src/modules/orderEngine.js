@@ -172,6 +172,9 @@ const dispatch_queue = async (orderId, triedInit, circlesInit) => {
       try {
         acceptTimers.delete(orderId)
         await q.clearDispatchState(orderId).catch(() => {})
+        // Проверяем статус — водитель мог уже принять заказ пока таймер срабатывал
+        const currentOrder = await q.getOrder(orderId).catch(() => null)
+        if (!currentOrder || currentOrder.status !== 'searching') return
         await penalizeSkip(driver.phone)
         await q.moveDriverToEndOfQueue(driver.phone)
         await sleep(config.PAUSE_MS)

@@ -152,14 +152,15 @@ const preloadMessageDedup = async () => {
 // ─── Восстановление после рестарта ────────────────────────────
 async function recoverOnStartup() {
   try {
-    // 1. Отменяем зависшие заказы (> 15 мин в активном статусе)
+    // 1. Отменяем только зависшие заказы в статусе 'searching' (> 15 мин без водителя)
+    // accepted/arrived НЕ отменяем — там уже есть водитель, поездка продолжается
     const stale = await db.query(
       `SELECT o.id, o.status, u.phone AS client_phone, du.phone AS driver_phone
        FROM orders o
        JOIN users u ON o.client_id = u.id
        LEFT JOIN drivers d ON o.driver_id = d.id
        LEFT JOIN users du ON d.user_id = du.id
-       WHERE o.status IN ('searching','accepted','arrived')
+       WHERE o.status = 'searching'
          AND o.created_at < NOW() - INTERVAL '15 minutes'`
     );
     if (stale.rows.length) {

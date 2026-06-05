@@ -242,7 +242,7 @@ const start = () => {
   // Каждые 2 ч в рабочее время (9-21) — нет заказов → проверить Green API
   cron.schedule('0 9,11,13,15,17,19,21 * * *', async () => {
     try { await checkSilence(); } catch(e) { console.error('[Timer/silence]', e.message); }
-  });
+  }, { timezone: 'Asia/Almaty' });
 
   // Каждый час — уведомление водителям кто давно ждёт без заказов
   cron.schedule('0 * * * *', async () => {
@@ -252,7 +252,7 @@ const start = () => {
         await notify.driverLongWait(d.phone);
       }
     } catch(e) { console.error('[Timer/longwait]', e.message); }
-  });
+  }, { timezone: 'Asia/Almaty' });
 
   // Утро 9:00 — напоминание офлайн водителям
   cron.schedule('0 9 * * *', async () => {
@@ -272,7 +272,7 @@ const start = () => {
         await new Promise(r => setTimeout(r, 500));
       }
     } catch(e) { console.error('[Timer/morning_drivers]', e.message); }
-  });
+  }, { timezone: 'Asia/Almaty' });
 
   // Вечер 17:00 — час пик
   cron.schedule('0 17 * * *', async () => {
@@ -295,7 +295,7 @@ const start = () => {
         }
       }
     } catch(e) { console.error('[Timer/evening_rush]', e.message); }
-  });
+  }, { timezone: 'Asia/Almaty' });
 
   // 12:00 — кто офлайн 3+ дней
   cron.schedule('0 12 * * *', async () => {
@@ -316,7 +316,7 @@ const start = () => {
         await new Promise(r => setTimeout(r, 500));
       }
     } catch(e) { console.error('[Timer/longoffline]', e.message); }
-  });
+  }, { timezone: 'Asia/Almaty' });
 
   // 22:00 — ежедневный итог водителям
   cron.schedule('0 22 * * *', async () => {
@@ -339,7 +339,7 @@ const start = () => {
         }
       }
     } catch(e) { console.error('[Timer/daily_summary]', e.message); }
-  });
+  }, { timezone: 'Asia/Almaty' });
 
   // 08:00 — утренняя сводка админу
   cron.schedule('0 8 * * *', async () => {
@@ -358,7 +358,7 @@ const start = () => {
         '🚗 Водителей сейчас: *' + online + '/' + drivers.length + '*'
       );
     } catch(e) { console.error('[Timer/morning_admin]', e.message); }
-  });
+  }, { timezone: 'Asia/Almaty' });
 
   // Каждое воскресенье 20:00 — недельный отчёт админу
   cron.schedule('0 20 * * 0', async () => {
@@ -379,7 +379,7 @@ const start = () => {
         '🏆 *Топ водителей:*\n' + (topLines || 'Нет данных')
       );
     } catch(e) { console.error('[Timer/weekly_admin]', e.message); }
-  });
+  }, { timezone: 'Asia/Almaty' });
 
   // 1-е число каждого месяца 09:00 — месячный отчёт
   cron.schedule('0 9 1 * *', async () => {
@@ -400,18 +400,19 @@ const start = () => {
         '🚖 Средний доход/день: *' + Number(Math.round(stats.revenue/30)).toLocaleString() + ' тг*'
       );
     } catch(e) { console.error('[Timer/monthly_admin]', e.message); }
-  });
+  }, { timezone: 'Asia/Almaty' });
 
   // Каждый день в 04:00 — обновление базы адресов через 2GIS (1 категория в день)
   cron.schedule('0 4 * * *', async () => {
     try {
       const script = path.join(__dirname, '../../import_2gis_daily.js');
+      if (!fs.existsSync(script)) return;
       execFile('node', [script], { timeout: 120000 }, (err, stdout) => {
         if (err) console.error('[Timer/2gis_daily]', err.message);
         else console.log('[Timer/2gis_daily]', stdout.slice(0, 200));
       });
     } catch(e) { console.error('[Timer/2gis_daily]', e.message); }
-  });
+  }, { timezone: 'Asia/Almaty' });
 
   console.log('Timer service started');
 };

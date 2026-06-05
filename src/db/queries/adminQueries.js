@@ -46,13 +46,20 @@ const resetAdminAttempts = async (phone) => {
 // ─── SETTINGS (с кешем 60 сек — снижает ~30-50 лишних DB-запросов/мин) ──────
 
 const _settingsCache = new Map()
+const SETTINGS_CACHE_MAX = 100
 
 const getSetting = async (key) => {
+  const now = Date.now()
   const cached = _settingsCache.get(key)
-  if (cached && Date.now() < cached.expiresAt) return cached.value
+  if (cached && now < cached.expiresAt) return cached.value
+  // Evict expired entries when cache is large
+  if (_settingsCache.size >= SETTINGS_CACHE_MAX) {
+    for (const [k, v] of _settingsCache) { if (v.expiresAt < now) _settingsCache.delete(k) }
+    if (_settingsCache.size >= SETTINGS_CACHE_MAX) _settingsCache.clear()
+  }
   const r = await db.query('SELECT value FROM settings WHERE key=$1', [key])
   const value = r.rows[0]?.value ?? null
-  _settingsCache.set(key, { value, expiresAt: Date.now() + 60_000 })
+  _settingsCache.set(key, { value, expiresAt: now + 60_000 })
   return value
 }
 

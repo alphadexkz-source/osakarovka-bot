@@ -64,8 +64,12 @@ const formatScheduleLabel = (date) => {
   const mm = String(almatyDate.getUTCMinutes()).padStart(2, '0')
   const timeStr = `${hh}:${mm}`
 
-  if (almatyDate.toDateString() === nowAlmaty.toDateString()) return `сегодня в ${timeStr}`
-  if (almatyDate.toDateString() === tomAlmaty.toDateString())  return `завтра в ${timeStr}`
+  const sameUTCDay = (a, b) =>
+    a.getUTCFullYear() === b.getUTCFullYear() &&
+    a.getUTCMonth() === b.getUTCMonth() &&
+    a.getUTCDate() === b.getUTCDate()
+  if (sameUTCDay(almatyDate, nowAlmaty)) return `сегодня в ${timeStr}`
+  if (sameUTCDay(almatyDate, tomAlmaty)) return `завтра в ${timeStr}`
   const days = ['вс', 'пн', 'вт', 'ср', 'чт', 'пт', 'сб']
   return `${days[almatyDate.getUTCDay()]} в ${timeStr}`
 }
