@@ -249,6 +249,10 @@ const arrived = async (orderId, driverPhone) => {
   const order = await q.getOrder(orderId)
   if (!order) return { error: 'not_found' }
   if (order.status !== 'accepted') return { error: 'wrong_status' }
+  if (order.driver_phone && order.driver_phone !== driverPhone) {
+    log.warn('orderEngine', 'arrived_wrong_driver', { orderId, driverPhone, assigned: order.driver_phone })
+    return { error: 'not_your_order' }
+  }
   await q.updateOrder(orderId, { status: 'arrived', arrived_at: new Date() })
   await notify.clientArrived(order.client_phone)
   await q.setSession(order.client_phone, 'in_trip', { order_id: orderId })
@@ -261,6 +265,10 @@ const complete = async (orderId, driverPhone) => {
   const order = await q.getOrder(orderId)
   if (!order) return { error: 'not_found' }
   if (!['arrived', 'accepted'].includes(order.status)) return { error: 'wrong_status' }
+  if (order.driver_phone && order.driver_phone !== driverPhone) {
+    log.warn('orderEngine', 'complete_wrong_driver', { orderId, driverPhone, assigned: order.driver_phone })
+    return { error: 'not_your_order' }
+  }
   const driver = await q.getDriver(driverPhone)
 
   // ── Атомарная транзакция: статус заказа + лояльность клиента + баланс водителя ──
@@ -388,6 +396,10 @@ const cancel = async (orderId, reason = 'client') => {
 const falseCall = async (orderId, driverPhone) => {
   const order = await q.getOrder(orderId)
   if (!order) return { error: 'not_found' }
+  if (order.driver_phone && order.driver_phone !== driverPhone) {
+    log.warn('orderEngine', 'falseCall_wrong_driver', { orderId, driverPhone, assigned: order.driver_phone })
+    return { error: 'not_your_order' }
+  }
   const driver = await q.getDriver(driverPhone)
   const client = await q.getUser(order.client_phone)
   if (!client) {
