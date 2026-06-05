@@ -70,8 +70,8 @@ src/
 │       ├── driverQueries.js      # getDriver/createDriver/updateDriver
 │       ├── orderQueries.js       # createOrder/getOrder/updateOrder/atomicAccept
 │       ├── tariffQueries.js      # getTariffs/createTariff/updateTariff
-│       ├── adminQueries.js       # admin-специфичные запросы
-│       ├── systemQueries.js      # getSetting/setSetting/getRecentMessageIds
+│       ├── adminQueries.js       # getSetting(кеш)/setSetting/admin brute-force/billing
+│       ├── systemQueries.js      # isDuplicateMessage/getRecentMessageIds/cleanupMessageDedup
 │       └── utils.js              # Общие утилиты (whitelist-защита полей)
 ├── lib/
 │   └── supabaseClient.js         # Supabase JS client (service role key)
@@ -179,7 +179,7 @@ pm2 save
 
 PM2 управляет двумя процессами:
 - `osakarovka-bot` — основной WhatsApp-бот (`src/index.js`)
-- `hermes-agent` — автономный Telegram-мониторинг (`agent/hermes.js loop`)
+- `hermes-agent` — автономный мониторинг (`agent/hermes.js loop`)
 
 ## Переменные окружения (.env)
 
@@ -269,6 +269,48 @@ node agent/hermes.js loop      # Непрерывный мониторинг (PM
 | Статистика | статистика, стат, итоги, заработок, қанша |
 | Очередь | очередь, позиция, кезек |
 | Прочее | faq, фак, перерыв |
+
+## Дополнительные таблицы БД (не в SUPABASE_SCHEMA.md)
+
+| Таблица | Создана в | Описание |
+|---------|-----------|----------|
+| `message_dedup` | migration_v2.sql | Дедупликация вебхуков Green API: `msg_id`, `received_at` |
+| `admin_attempts` | migration_v2.sql | Брутфорс-защита: `phone`, `attempt_count`, `locked_until` |
+| `agent_memory` | migrations/001 | Долгосрочная память Hermes (category, key, content, importance 1-10) |
+| `agent_conversations` | migrations/001 | История диалогов агента |
+| `agent_tasks` | migrations/001 | Задачи для Claude Code (pending/completed/failed) |
+
+### Ключ `admin_phone` в таблице `settings`
+```sql
+-- Установить телефон администратора для получения алертов:
+INSERT INTO settings(key,value) VALUES('admin_phone','77XXXXXXXXX')
+ON CONFLICT(key) DO UPDATE SET value=EXCLUDED.value;
+```
+Используется в `timerService.js` для WhatsApp-уведомлений об ошибках и тишине.
+
+---
+
+## Незакрытый техдолг (из аудита 2026-06-05)
+
+### 🔴 Высокий приоритет
+| # | Проблема | Файл | Усилие |
+|---|----------|------|--------|
+| TD-01 | Нет транзакций в `complete()` — 12+ последовательных запросов без rollback | `orderEngine.js:257` | 2-3 ч |
+| TD-02 | `checkDispatchTimeouts` при рестарте отменяет заказ вместо `resumeDispatch` | `timerService.js:134` | 2 ч |
+| TD-03 | 5 недостающих индексов БД (searching, scheduled, accepted, dispatched, driver_date) | SQL миграция | 15 мин |
+| TD-04 | Webhook без HMAC — `instanceData.idInstance` подделывается (CVSS 8.6) | `src/index.js:73` | 1-2 ч |
+
+### 🟡 Средний приоритет
+| # | Проблема | Файл |
+|---|----------|------|
+| TD-05 | Тестовое покрытие 17% — нет тестов для `orderEngine`, `driverManager`, `scheduleParser` | `tests/unit/` |
+| TD-06 | `stateMachine.js` мёртвый код — нигде не импортируется | `src/modules/stateMachine.js` |
+| TD-07 | `supabaseClient.js` мёртвый код в `src/lib/` | `src/lib/supabaseClient.js` |
+| TD-08 | Межгород: цена ищется по `destination`, не по маршруту | `clientOrderHandler.js:244` |
+| TD-09 | `_groqCounts` Map в smartReply.js никогда не чистится | `smartReply.js:12` |
+| TD-10 | `addressDetector` cache — unbounded Map (нет MAX_SIZE) | `addressDetector.js` |
+
+---
 
 ## Важные DB-запросы для отладки
 

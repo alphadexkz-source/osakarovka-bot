@@ -139,12 +139,13 @@
 
 ---
 
-### `settings` — настройки бота (8 строк)
+### `settings` — настройки бота
 
 | key | Описание |
 |-----|----------|
 | `distribution_mode` | `queue` / `broadcast` — режим распределения заказов |
 | `bot_active` | `true` / `false` |
+| `admin_phone` | Телефон администратора для WhatsApp-алертов (7XXXXXXXXXX) |
 | `referral_enabled` | Реферальная программа |
 | `referral_bonus` | Бесплатных поездок за реферала |
 | `loyalty_enabled` | Программа лояльности |
@@ -303,6 +304,32 @@ SUPABASE_SERVICE_KEY=<service_role_key из Supabase Dashboard → Settings → 
 | `result` | TEXT | Результат выполнения |
 | `created_at` | TIMESTAMPTZ | |
 | `completed_at` | TIMESTAMPTZ | |
+
+---
+
+---
+
+### `message_dedup` — дедупликация вебхуков (migration_v2.sql)
+
+| Колонка | Тип | Описание |
+|---------|-----|----------|
+| `msg_id` | TEXT PK | ID сообщения от Green API |
+| `received_at` | TIMESTAMPTZ | `DEFAULT NOW()` |
+
+Очищается каждые 2 часа через `cleanupMessageDedup()`.
+
+---
+
+### `admin_attempts` — брутфорс-защита (migration_v2.sql)
+
+| Колонка | Тип | Описание |
+|---------|-----|----------|
+| `phone` | VARCHAR(20) PK | Телефон |
+| `attempt_count` | INTEGER | Счётчик попыток |
+| `last_attempt_at` | TIMESTAMPTZ | |
+| `locked_until` | TIMESTAMPTZ | NULL = не заблокирован |
+
+5 неудачных попыток → блок 15 мин. Переживает рестарт бота (в БД).
 
 ---
 
