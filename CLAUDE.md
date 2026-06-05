@@ -1,5 +1,18 @@
 # CLAUDE.md — Osakarovka Bot v2.0
 
+## Ruflo / claude-flow память
+
+Ключи в namespace `osakarovka-bot` (поиск через `mcp__claude-flow__memory_search`):
+- `project_overview` — инфраструктура, стек, сервер
+- `architecture_files` — карта всех файлов и их роль
+- `order_flow` — флоу заказа, FSM-состояния, константы
+- `llm_models` — какая модель для чего используется
+- `env_vars` — переменные окружения и их назначение
+- `tech_debt_resolved_2026_06_05` — весь закрытый техдолг
+
+> Перед новой задачей: `memory_search("osakarovka-bot <ключевое слово задачи>")`
+> После изменений: `memory_store(upsert=true)` с обновлёнными данными
+
 ## О проекте
 
 **еОсакаровка Сервис** — WhatsApp-бот диспетчерской службы такси посёлка Осакаровка (Казахстан).  
