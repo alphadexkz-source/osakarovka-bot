@@ -199,10 +199,12 @@ const handle = async (phone, name, msg, session) => {
     // 12. Определение адреса → новый заказ или Groq
     const addr = await isAddress(text)
     if (!addr) {
-      const today = new Date().toISOString().split('T')[0]
+      // Сравниваем даты по Алматинскому времени UTC+5
+      const almatyNow = new Date(Date.now() + 5 * 3600_000)
+      const today = almatyNow.toISOString().split('T')[0]
       const lastSeen = user?.last_seen_date ? String(user.last_seen_date).split('T')[0] : null
       if (lastSeen !== today) {
-        await q.updateUser(phone, { last_seen_date: new Date() }).catch(() => {})
+        await q.updateUser(phone, { last_seen_date: today }).catch(() => {})
         const dayGreet = await dailyGreeting(name, text, user?.trip_count||0).catch(() => null)
         if (dayGreet) { await wa.sendText(phone, dayGreet); return }
       }

@@ -265,25 +265,31 @@ const complete = async (orderId, driverPhone) => {
   await notify.clientCompleted(order.client_phone, order.price, order.is_free, order.destination)
   await q.setSession(order.client_phone, 'idle', {})
 
-  // Запрос оценки через 4 секунды (после прочтения прощания)
+  // Запрос оценки через 5 секунд (после прочтения прощания)
   setTimeout(async () => {
     try {
       const sess = await q.getSession(order.client_phone).catch(() => null)
-      if (sess?.state === 'idle') {
-        await wa.sendButtons(order.client_phone,
-          '⭐ *Оцените поездку!*\n\nКак вам водитель *' + (driver?.full_name || 'водитель') + '*?',
-          [
-            { id: 'rating_5', text: '😊 Отлично' },
-            { id: 'rating_3', text: '😐 Нормально' },
-            { id: 'rating_1', text: '😞 Плохо' },
-          ]
-        )
-        await q.setSession(order.client_phone, 'waiting_rating', {
-          order_id: orderId, driver_id: driver?.id
-        })
-      }
+      if (sess?.state !== 'idle') return // клиент уже что-то делает — не прерываем
+      const driverName = driver?.full_name || 'водитель'
+      const ratingMsg =
+        `⭐ *Оцените поездку!*\n\n` +
+        `Как вам водитель *${driverName}*?\n\n` +
+        `Напишите цифру:\n` +
+        `*5* — 🤩 Отлично\n` +
+        `*4* — 😊 Хорошо\n` +
+        `*3* — 😐 Нормально\n` +
+        `*2* — 😕 Так себе\n` +
+        `*1* — 😞 Плохо`
+      await wa.sendButtons(order.client_phone, ratingMsg, [
+        { id: 'rating_5', text: '🤩 Отлично (5)' },
+        { id: 'rating_3', text: '😐 Нормально (3)' },
+        { id: 'rating_1', text: '😞 Плохо (1)' },
+      ])
+      await q.setSession(order.client_phone, 'waiting_rating', {
+        order_id: orderId, driver_id: driver?.id, driver_name: driverName
+      })
     } catch (e) { console.error('[orderEngine/rating_request]', e.message) }
-  }, 4000)
+  }, 5000)
 
   const result = await driverMgr.afterTrip(driverPhone, driver?.id, order.is_free)
   if (result.offline) {
