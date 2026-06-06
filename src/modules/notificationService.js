@@ -119,10 +119,16 @@ const driverStats = async (phone, driver, stats) => {
     ).then(r => r.rows[0]).catch(() => ({completed:0, earned:0})),
 
     db.query(
-      `SELECT driver_id, COUNT(*) AS trips
-       FROM orders WHERE status='completed' AND created_at >= NOW() - INTERVAL '30 days'
-       GROUP BY driver_id ORDER BY trips DESC`
-    ).then(r => r.rows).catch(() => []),
+      `SELECT rank::int, total::int FROM (
+         SELECT driver_id,
+                RANK() OVER (ORDER BY COUNT(*) DESC)::int AS rank,
+                COUNT(*) OVER ()::int AS total
+         FROM orders
+         WHERE status='completed' AND created_at >= NOW() - INTERVAL '30 days'
+         GROUP BY driver_id
+       ) t WHERE driver_id = $1`,
+      [driver.id]
+    ).then(r => r.rows[0] ?? null).catch(() => null),
 
     driver.status === 'online'
       ? db.query(
@@ -159,9 +165,8 @@ const driverStats = async (phone, driver, stats) => {
 
   const avgDay = Number(month.completed) > 0 ? Math.round(Number(month.earned) / 30) : 0;
 
-  const myPos = ranking.findIndex(r => parseInt(r.driver_id) === parseInt(driver.id));
-  const rankLine = myPos >= 0
-    ? `🏆 *${myPos + 1}-е место* из ${ranking.length} водителей (30 дней)`
+  const rankLine = ranking
+    ? `🏆 *${ranking.rank}-е место* из ${ranking.total} водителей (30 дней)`
     : `🏆 Рейтинг: нет данных за 30 дней`;
 
   const ratingVal = driver.rating ? Number(driver.rating).toFixed(1) : '5.0';

@@ -11,11 +11,19 @@ const getGroq = () => {
 
 // Cache stores full analysis: { is_address, destination, comment, _db }
 const cache = new Map();
+const cacheTimers = new Map();
 const MAX_CACHE_SIZE = 1000;
 const cacheSet = (key, value, ttlMs) => {
-  if (cache.size >= MAX_CACHE_SIZE) cache.delete(cache.keys().next().value);
+  if (cache.size >= MAX_CACHE_SIZE) {
+    const oldest = cache.keys().next().value;
+    clearTimeout(cacheTimers.get(oldest));
+    cacheTimers.delete(oldest);
+    cache.delete(oldest);
+  }
+  clearTimeout(cacheTimers.get(key));
+  const tid = setTimeout(() => { cache.delete(key); cacheTimers.delete(key); }, ttlMs);
   cache.set(key, value);
-  setTimeout(() => cache.delete(key), ttlMs);
+  cacheTimers.set(key, tid);
 };
 
 const NOT_ADDRESS = [

@@ -71,6 +71,18 @@ const handle = async (phone, msg, session) => {
     if (state === 'admin_edit_pick')  return editTariff_pick(phone, text);
     if (state === 'admin_edit_field') return editTariff_field(phone, text, ctx);
     if (state === 'admin_del_pick')   return deleteTariff_pick(phone, text);
+    if (state === 'admin_broadcast_confirm') {
+      const { target, message } = ctx;
+      if (lo === 'да' && target && message) {
+        const n = await notify.broadcast(target, message);
+        await q.setSession(phone, 'admin_mode', {});
+        await wa.sendText(phone, `✅ Отправлено *${n}* ${target === 'client' ? 'клиентам' : 'водителям'}.`);
+      } else {
+        await q.setSession(phone, 'admin_mode', {});
+        await wa.sendText(phone, '❌ Рассылка отменена.');
+      }
+      return;
+    }
 
     // ── ТАРИФЫ ────────────────────────────────────────────────
     if (lo === 'тарифы') {
@@ -263,15 +275,15 @@ const handle = async (phone, msg, session) => {
     if (lo.startsWith('рассылка клиенты ') || lo.startsWith('рассылки клиенты ')) {
       const m = text.slice('рассылка клиенты '.length).trim();
       if (!m) { await wa.sendText(phone, '❌ Укажите текст.'); return; }
-      const n = await notify.broadcast('client', m);
-      await wa.sendText(phone, `✅ Отправлено *${n}* клиентам.`);
+      await q.setSession(phone, 'admin_broadcast_confirm', { target: 'client', message: m });
+      await wa.sendText(phone, `📢 *Подтвердите рассылку клиентам:*\n\n${m}\n\nНапишите *да* для отправки или *отмена*.`);
       return;
     }
     if (lo.startsWith('рассылка водители ') || lo.startsWith('рассылки водители ')) {
       const m = text.slice('рассылка водители '.length).trim();
       if (!m) { await wa.sendText(phone, '❌ Укажите текст.'); return; }
-      const n = await notify.broadcast('driver', m);
-      await wa.sendText(phone, `✅ Отправлено *${n}* водителям.`);
+      await q.setSession(phone, 'admin_broadcast_confirm', { target: 'driver', message: m });
+      await wa.sendText(phone, `📢 *Подтвердите рассылку водителям:*\n\n${m}\n\nНапишите *да* для отправки или *отмена*.`);
       return;
     }
 

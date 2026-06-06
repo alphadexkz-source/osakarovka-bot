@@ -27,6 +27,15 @@ const DRIVER_BUTTON_PREFIXES = [
   'done_','false_','chat_','cancel_driver_','driver_cancel_',
 ];
 
+const _driverCodeAttempts = new Map(); // phone → { count, resetAt }
+// Periodic cleanup every 30 min
+setInterval(() => {
+  const now = Date.now();
+  for (const [phone, rec] of _driverCodeAttempts) {
+    if (now > rec.resetAt) _driverCodeAttempts.delete(phone);
+  }
+}, 30 * 60_000);
+
 const parse = (body) => {
   console.log('[WEBHOOK TYPE]', body.typeWebhook, body.senderData?.sender);
   if (body.typeWebhook !== 'incomingMessageReceived') return null;
@@ -142,7 +151,19 @@ const route = async (body) => {
 
     // ─── КОД ВОДИТЕЛЯ ─────────────────────────────────────────
     const isDriverCode = text.toUpperCase().trim() === config.DRIVER_CODE.toUpperCase();
+    if (!isDriverCode && role !== 'driver' && /^[A-Za-z0-9А-Яа-яЁё]{4,16}$/.test(text.trim())) {
+      const now = Date.now();
+      const rec = _driverCodeAttempts.get(phone) || { count: 0, resetAt: now + 30 * 60_000 };
+      if (now > rec.resetAt) { rec.count = 0; rec.resetAt = now + 30 * 60_000; }
+      rec.count++;
+      _driverCodeAttempts.set(phone, rec);
+      if (rec.count >= 10) {
+        await wa.sendText(phone, '🚫 Слишком много неверных попыток. Попробуйте через 30 минут.');
+        return;
+      }
+    }
     if (isDriverCode && role !== 'driver') {
+      _driverCodeAttempts.delete(phone);
       if (role === 'new' || !user) {
         const newUser = await q.createUser(phone, name, 'driver');
         await q.createDriver(newUser.id);
@@ -153,7 +174,7 @@ const route = async (body) => {
       }
       await q.setSession(phone, 'reg_name', {});
       await wa.sendText(phone,
-        'Код принят! Добро пожаловать!\n\nРегистрация водителя (5 шагов)\n\nШаг 1/5: Введите ваше полное имя (ФИО):'
+        'Код принят! Добро пожаловать!\n\nРегистрация водителя (4 шага)\n\nШаг 1/4: Введите ваше полное имя (ФИО):'
       );
       return;
     }
@@ -182,7 +203,7 @@ const route = async (body) => {
         if (role === 'admin') return clientHandler.handle(phone, name, msg, session);
         await q.createDriver((await q.getUser(phone))?.id).catch(() => {});
         await q.setSession(phone, 'reg_name', {});
-        await wa.sendText(phone, 'Для работы водителем пройдите регистрацию.\n\nШаг 1/5: Введите ваше полное имя (ФИО):');
+        await wa.sendText(phone, 'Для работы водителем пройдите регистрацию.\n\nШаг 1/4: Введите ваше полное имя (ФИО):');
         return;
       }
 
@@ -200,7 +221,7 @@ const route = async (body) => {
         if (isEmpty) {
           if (role === 'admin') return clientHandler.handle(phone, name, msg, session);
           await q.setSession(phone, 'reg_name', {});
-          await wa.sendText(phone, 'Для работы водителем пройдите регистрацию.\n\nШаг 1/5: Введите ваше полное имя (ФИО):');
+          await wa.sendText(phone, 'Для работы водителем пройдите регистрацию.\n\nШаг 1/4: Введите ваше полное имя (ФИО):');
           return;
         }
         // Частично заполнен — понижаем роль

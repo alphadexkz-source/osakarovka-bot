@@ -56,18 +56,17 @@ const checkStuckOrders = async () => {
      WHERE o.status = 'searching'
        AND o.created_at < NOW() - INTERVAL '10 minutes'`
   ).then(r => r.rows).catch(() => []);
-  for (const order of stuck) {
-    // Используем orderEngine.cancel — чистит acceptTimers, уведомляет водителя, пишет лог
-    await orderEngine.cancel(order.id, 'Нет водителей').catch(() => {});
-  }
+  await Promise.all(stuck.map(order =>
+    orderEngine.cancel(order.id, 'Нет водителей').catch(() => {})
+  ));
 };
 
 const checkInactiveDrivers = async () => {
   const inactive = await q.getInactiveDrivers(30).catch(() => []);
-  for (const d of inactive) {
+  await Promise.all(inactive.map(async d => {
     await q.setDriverStatus(d.phone, 'offline');
     await notify.driverInactiveOffline(d.phone).catch(() => {});
-  }
+  }));
 };
 
 const warnInactiveDrivers = async () => {
@@ -79,14 +78,20 @@ const warnInactiveDrivers = async () => {
        AND d.last_activity > NOW() - make_interval(mins => $2)`,
     [25, 28]
   ).then(r => r.rows).catch(() => []);
-  for (const d of r) {
-    await wa.sendText(d.phone,
+  await Promise.all(r.map(d =>
+    wa.sendText(d.phone,
       '⚠️ *' + d.full_name + '*, вы неактивны 25 минут.\n\n' +
       'Через *5 минут* автоматически уйдёте офлайн.\n\n' +
       'Напишите что-нибудь чтобы остаться на линии.'
-    ).catch(() => {});
-    await new Promise(r => setTimeout(r, 300));
-  }
+    ).catch(() => {})
+  ));
+};
+
+const checkAdminSessionTTL = async () => {
+  await db.query(
+    `UPDATE sessions SET state='idle', ctx='{}'
+     WHERE state LIKE 'admin%' AND state != 'admin_exit' AND updated_at < NOW() - INTERVAL '30 minutes'`
+  ).catch(() => {});
 };
 
 // ─── Возобновление диспетчеризации после ожидания офлайн-водителей ───────────
@@ -218,11 +223,13 @@ const start = () => {
   console.log('[TimerService] Расписание активно');
 
   // Каждую минуту — проверка зависших диспетчеризаций + ожидающих + перерывов + предзаказов
-  cron.schedule('*/1 * * * *', async () => {
-    try { await checkDispatchTimeouts() } catch (e) { console.error('[Timer/dispatch_timeout]', e.message) }
-    try { await checkWaitingDispatches() } catch (e) { console.error('[Timer/waiting_dispatches]', e.message) }
-    try { await checkBreakTimers() } catch (e) { console.error('[Timer/break_timers]', e.message) }
-    try { await checkScheduledOrders() } catch (e) { console.error('[Timer/scheduled_orders]', e.message) }
+  cron.schedule('*/1 * * * *', () => {
+    Promise.all([
+      checkDispatchTimeouts().catch(e => console.error('[Timer/dispatch_timeout]', e.message)),
+      checkWaitingDispatches().catch(e => console.error('[Timer/waiting_dispatches]', e.message)),
+      checkBreakTimers().catch(e => console.error('[Timer/break_timers]', e.message)),
+      checkScheduledOrders().catch(e => console.error('[Timer/scheduled_orders]', e.message)),
+    ]);
   })
 
   // Каждые 2 минуты — предупреждения о долгом ожидании прибытия
@@ -231,12 +238,15 @@ const start = () => {
   })
 
   // Каждые 5 мин — основные задачи + мониторинг ошибок
-  cron.schedule('*/5 * * * *', async () => {
-    try { await checkStuckOrders(); }    catch(e) { console.error('[Timer/stuck_orders]', e.message); }
-    try { await checkInactiveDrivers(); } catch(e) { console.error('[Timer/auto_offline]', e.message); }
-    try { await warnInactiveDrivers(); }  catch(e) { console.error('[Timer/inactivity_warn]', e.message); }
-    try { await q.cleanupMessageDedup(); } catch(e) {}
-    try { await checkErrorSpike(); }      catch(e) { console.error('[Timer/error_spike]', e.message); }
+  cron.schedule('*/5 * * * *', () => {
+    Promise.all([
+      checkStuckOrders().catch(e => console.error('[Timer/stuck_orders]', e.message)),
+      checkInactiveDrivers().catch(e => console.error('[Timer/auto_offline]', e.message)),
+      warnInactiveDrivers().catch(e => console.error('[Timer/inactivity_warn]', e.message)),
+      checkAdminSessionTTL().catch(e => console.error('[Timer/admin_ttl]', e.message)),
+      q.cleanupMessageDedup().catch(() => {}),
+      checkErrorSpike().catch(e => console.error('[Timer/error_spike]', e.message)),
+    ]);
   });
 
   // Каждые 2 ч в рабочее время (9-21) — нет заказов → проверить Green API
@@ -265,12 +275,11 @@ const start = () => {
           AND d.last_activity > NOW() - INTERVAL '48 hours'
           AND d.order_balance > 0
       `);
-      for (const d of r.rows) {
-        await wa.sendText(d.phone,
+      await Promise.all(r.rows.map(d =>
+        wa.sendText(d.phone,
           '☀️ *Доброе утро, ' + d.full_name + '!*\n\n🚖 Клиенты уже пишут — выходите на линию!\n\nНапишите *"на линию"* чтобы начать работу. 💪'
-        );
-        await new Promise(r => setTimeout(r, 500));
-      }
+        ).catch(() => {})
+      ));
     } catch(e) { console.error('[Timer/morning_drivers]', e.message); }
   }, { timezone: 'Asia/Almaty' });
 
@@ -287,12 +296,11 @@ const start = () => {
           JOIN users u ON d.user_id = u.id
           WHERE d.status = 'offline' AND d.order_balance > 0
         `);
-        for (const d of r.rows) {
-          await wa.sendText(d.phone,
+        await Promise.all(r.rows.map(d =>
+          wa.sendText(d.phone,
             '🔥 *' + d.full_name + ', вечерний час пик!*\n\n📊 За последний час: *' + ordersCount + '* заказов.\n🚖 Выходите на линию — напишите *"на линию"*!'
-          );
-          await new Promise(r => setTimeout(r, 500));
-        }
+          ).catch(() => {})
+        ));
       }
     } catch(e) { console.error('[Timer/evening_rush]', e.message); }
   }, { timezone: 'Asia/Almaty' });
@@ -308,13 +316,12 @@ const start = () => {
           AND d.last_activity > NOW() - INTERVAL '30 days'
           AND d.order_balance > 0
       `);
-      for (const d of r.rows) {
+      await Promise.all(r.rows.map(d => {
         const days = Math.floor((Date.now() - new Date(d.last_activity)) / 86400000);
-        await wa.sendText(d.phone,
+        return wa.sendText(d.phone,
           '👋 *' + d.full_name + '*, вас не было *' + days + ' дней!*\n\n🚖 Клиенты скучают — ждём вас!\nКогда будете готовы — напишите *"на линию"*. 😊'
-        );
-        await new Promise(r => setTimeout(r, 500));
-      }
+        ).catch(() => {});
+      }));
     } catch(e) { console.error('[Timer/longoffline]', e.message); }
   }, { timezone: 'Asia/Almaty' });
 
@@ -326,7 +333,7 @@ const start = () => {
         FROM drivers d JOIN users u ON d.user_id = u.id
         WHERE d.last_activity > NOW() - INTERVAL '24 hours'
       `).then(r => r.rows).catch(() => []);
-      for (const d of drivers) {
+      await Promise.all(drivers.map(async d => {
         const stats = await q.getDriverTodayStats(d.id).catch(() => null);
         if (stats && (stats.completed > 0 || stats.earned > 0)) {
           await wa.sendText(d.phone,
@@ -334,10 +341,9 @@ const start = () => {
             '🚖 Поездок: *' + (stats.completed||0) + '*\n' +
             '💰 Заработано: *' + Number(stats.earned||0).toLocaleString() + ' тг*\n\n' +
             '👏 Спасибо за работу! Отдыхайте. До завтра! 😴'
-          );
-          await new Promise(r => setTimeout(r, 500));
+          ).catch(() => {});
         }
-      }
+      }));
     } catch(e) { console.error('[Timer/daily_summary]', e.message); }
   }, { timezone: 'Asia/Almaty' });
 
