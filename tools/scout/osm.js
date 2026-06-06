@@ -12,7 +12,12 @@ const BBOX = {
   east:  72.600,
 };
 
-const OVERPASS_URL = 'https://overpass-api.de/api/interpreter';
+// Несколько публичных Overpass-эндпоинтов (fallback)
+const OVERPASS_ENDPOINTS = [
+  'https://overpass.kumi.systems/api/interpreter',
+  'https://overpass-api.de/api/interpreter',
+  'https://maps.mail.ru/osm/tools/overpass/api/interpreter',
+];
 
 const OVERPASS_QUERY = `
 [out:json][timeout:90];
@@ -177,16 +182,31 @@ const normalizeOsm = (el, wayNames) => {
   };
 };
 
+const fetchOverpass = async (logger) => {
+  const headers = {
+    'Content-Type': 'application/x-www-form-urlencoded',
+    'Accept': 'application/json',
+    'User-Agent': 'osakarovka-bot/2.0 (taxi dispatch bot, Kazakhstan)',
+  };
+  const body = `data=${encodeURIComponent(OVERPASS_QUERY)}`;
+
+  for (const url of OVERPASS_ENDPOINTS) {
+    try {
+      logger(`[OSM] Пробуем ${url.replace('https://', '')}...`);
+      const resp = await axios.post(url, body, { headers, timeout: 120000 });
+      return resp.data?.elements || [];
+    } catch (e) {
+      logger(`[OSM] ${url.split('/')[2]}: ${e.response?.status || e.message} — пробуем следующий`);
+    }
+  }
+  return [];
+};
+
 const collect = async (logger = console.log) => {
   logger('[OSM] Запрос к Overpass API...');
 
   try {
-    const resp = await axios.post(OVERPASS_URL, `data=${encodeURIComponent(OVERPASS_QUERY)}`, {
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      timeout: 120000,
-    });
-
-    const elements = resp.data?.elements || [];
+    const elements = await fetchOverpass(logger);
     logger(`[OSM] Получено элементов: ${elements.length}`);
 
     const results = [];
@@ -209,7 +229,7 @@ const collect = async (logger = console.log) => {
     logger(`[OSM] Нормализовано объектов: ${results.length}`);
     return results;
   } catch (e) {
-    logger(`[OSM] Ошибка: ${e.message}`);
+    logger(`[OSM] Критическая ошибка: ${e.message}`);
     return [];
   }
 };
