@@ -23,6 +23,10 @@ const handleRegistration = async (phone, msg, state) => {
       await q.setSession(phone, 'reg_plate', {})
       await wa.sendText(phone, '✅ Авто: *' + text.trim() + '*\n\n🔢 *Шаг 3/4:* Введите гос. номер:\nНапример: *A123BC*')
       break
+    case 'reg_photo': // legacy — шаг фото удалён, пропускаем к цвету
+      await q.setSession(phone, 'reg_color', {})
+      await wa.sendText(phone, '🎨 *Шаг 4/4:* Какого цвета ваш автомобиль?\nНапример: *белый*, *чёрный*, *серебристый*')
+      break
     case 'reg_plate':
       if (!text || text.length < 2) { await wa.sendText(phone, '🔢 Введите гос. номер авто:\nНапример: *A123BC*'); return }
       await q.updateDriver(phone, { car_plate: text.trim().toUpperCase().slice(0, 20) })
