@@ -70,7 +70,7 @@ const handleCommand = async (phone, lo, driver, session) => {
       '🟢 *Выход на работу:*\n• *"на линию"* — начать работу\n• *"с линии"* — закончить работу\n• *"перерыв 20"* — пауза 20 мин (авто-возврат)\n\n' +
       '🚖 *Управление заказом:*\n• *принял / да / ok* — принять заказ\n• *прибыл / на месте* — приехал к клиенту\n• *свободен / доехали* — поездка завершена\n• *ложный* — клиента нет на месте\n\n' +
       '📊 *Статистика:*\n• *"статистика"* — заработок за день/неделю/месяц\n• *"очередь"* — моя позиция в очереди\n\n' +
-      '✏️ *Изменить данные:*\n• *"имя"* — изменить ФИО\n• *"авто"* — марку и номер\n• *"фото"* — фото авто\n• *"цвет"* — цвет авто\n\n' +
+      '✏️ *Изменить данные:*\n• *"имя"* — изменить ФИО\n• *"авто"* — марку и номер\n• *"цвет"* — цвет авто\n\n' +
       '🎙 *Все команды работают голосом!*\n📦 Баланс = кол-во заказов. При 0 — обратитесь к администратору.'
     )
     return
@@ -246,8 +246,10 @@ const handleVoice = async (phone, mediaUrl, session) => {
     return
   }
   if (result.intent === 'skip') {
-    await q.moveDriverToEndOfQueue(phone)
-    await wa.sendText(phone, '✅ Пропущено. Ожидайте следующий заказ.')
+    const pending = await q.getPendingOrderForDriver(phone)
+    await wa.sendText(phone, 'Пропущено.')
+    if (pending) await orderEngine.skipOrder(pending.id, phone)
+    else await q.moveDriverToEndOfQueue(phone)
     return
   }
 

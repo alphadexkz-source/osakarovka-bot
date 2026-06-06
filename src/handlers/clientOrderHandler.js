@@ -311,7 +311,7 @@ const handleOrderState = async (phone, name, lo, text, msg, session) => {
       return true
     }
     const scheduledFor = parseScheduleDate(timeStr)
-    if (!scheduledFor || scheduledFor <= new Date()) {
+    if (!scheduledFor || scheduledFor <= new Date(Date.now() + 5 * 3600_000)) {
       await wa.sendText(phone, '❌ Это время уже прошло. Напишите время в будущем:\n*завтра в 8:00*, *сегодня в 17:30*, *через 2 часа*')
       return true
     }

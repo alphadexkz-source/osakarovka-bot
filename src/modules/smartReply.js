@@ -145,7 +145,7 @@ const parseScheduleTime = async (text) => {
       temperature: 0,
     })
     return r.choices[0]?.message?.content?.trim() || text
-  } catch (e) { return text }
+  } catch (e) { return null }
 }
 
 module.exports = { getGroqReply, getGroqDriverReply, parseScheduleTime }

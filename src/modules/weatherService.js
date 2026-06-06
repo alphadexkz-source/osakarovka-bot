@@ -160,7 +160,7 @@ function httpGet(url) {
     }, r => {
       let d = '';
       r.on('data', c => d += c);
-      r.on('end', () => { try { res(JSON.parse(d)) } catch(e) { rej(e) } });
+      r.on('end', () => { try { if (r.statusCode >= 400) { rej(new Error('HTTP ' + r.statusCode)); return; } res(JSON.parse(d)) } catch(e) { rej(e) } });
     }).on('error', rej);
   });
 }

@@ -44,35 +44,6 @@ const getAllOnline = async () => {
   return q.getOnlineDriversQueue();
 };
 
-// После завершения поездки
-const afterTrip = async (phone, driverId, isFree=false) => {
-  // Бесплатная поездка — баланс НЕ списывается (сервис берёт на себя)
-  let newBalance;
-  if (isFree) {
-    const driverData = await q.getDriver(phone);
-    newBalance = driverData?.order_balance ?? 1; // не трогаем баланс
-  } else {
-    newBalance = await q.deductDriverBalance(driverId);
-  }
-
-  if (newBalance === 0 || newBalance === undefined) {
-    await q.setDriverStatus(phone, 'offline');
-    return { offline: true, balance: 0 };
-  }
-
-  // Вернуть в очередь
-  await q.setDriverStatus(phone, 'online');
-  await q.moveDriverToEndOfQueue(phone);
-
-  // Если рейтинг низкий — пропустить следующий заказ
-  const driver = await q.getDriver(phone);
-  if (driver && parseFloat(driver.rating) < config.LOW_RATING) {
-    await q.updateDriver(phone, { skip_next: true });
-  }
-
-  return { offline: false, balance: newBalance };
-};
-
 // Форматировать список водителей
 const formatList = (drivers) => {
   if (!drivers.length) return 'Водители не зарегистрированы.';
@@ -86,4 +57,4 @@ const formatList = (drivers) => {
   ).join('\n\n');
 };
 
-module.exports = { goOnline, goOffline, getNextDriver, getAllOnline, afterTrip, formatList };
+module.exports = { goOnline, goOffline, getNextDriver, getAllOnline, formatList };

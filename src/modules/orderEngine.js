@@ -7,6 +7,7 @@ const wa = require('../whatsapp/greenApi')
 const log = require('../logger')
 
 const acceptTimers = new Map()
+const ratingTimers = new Map()
 
 const clearTimer = (map, key) => { const e = map.get(key); if (e) { clearTimeout(e.timer || e); map.delete(key) } }
 const sleep = ms => new Promise(r => setTimeout(r, ms))
@@ -34,6 +35,7 @@ const create = async (clientPhone, destination, priceInfo) => {
     log.warn('orderEngine', 'duplicate_create_blocked', { client: clientPhone })
     return null
   }
+  clearTimer(ratingTimers, clientPhone)
 
   const client = await q.getUser(clientPhone)
   if (!client) return null
@@ -188,6 +190,8 @@ const dispatch_queue = async (orderId, triedInit, circlesInit) => {
 }
 
 const dispatch_first = async (order) => {
+  order = await q.getOrder(order.id)
+  if (!order) return
   const drivers = await driverMgr.getAllOnline()
   if (!drivers.length) {
     await q.updateOrder(order.id, { status: 'cancelled', cancel_reason: 'no_drivers', cancelled_at: new Date() })
@@ -326,14 +330,16 @@ const complete = async (orderId, driverPhone) => {
   log.order('complete', { orderId, driver: driverPhone, client: order.client_phone, price: order.price, isFree: order.is_free })
   await q.clearDebt(order.client_phone).catch(() => {})
   await notify.clientCompleted(order.client_phone, order.price, order.is_free, order.destination)
-  await q.setSession(order.client_phone, 'idle', {})
+  const driverName = driver?.full_name || 'водитель'
+  await q.setSession(order.client_phone, 'waiting_rating', { order_id: orderId, driver_id: driver?.id, driver_name: driverName })
+  clearTimer(ratingTimers, order.client_phone)
 
   // Запрос оценки через 5 секунд (после прочтения прощания)
-  setTimeout(async () => {
+  const ratingTimer = setTimeout(async () => {
+    ratingTimers.delete(order.client_phone)
     try {
       const sess = await q.getSession(order.client_phone).catch(() => null)
-      if (sess?.state !== 'idle') return
-      const driverName = driver?.full_name || 'водитель'
+      if (sess?.state !== 'waiting_rating') return
       const ratingMsg =
         `⭐ *Оцените поездку!*\n\n` +
         `Как вам водитель *${driverName}*?\n\n` +
@@ -348,11 +354,9 @@ const complete = async (orderId, driverPhone) => {
         { id: 'rating_3', text: '😐 Нормально (3)' },
         { id: 'rating_1', text: '😞 Плохо (1)' },
       ])
-      await q.setSession(order.client_phone, 'waiting_rating', {
-        order_id: orderId, driver_id: driver?.id, driver_name: driverName
-      })
     } catch (e) { console.error('[orderEngine/rating_request]', e.message) }
   }, 5000)
+  ratingTimers.set(order.client_phone, ratingTimer)
 
   if (newBalance === 0) {
     await q.setDriverStatus(driverPhone, 'offline')
