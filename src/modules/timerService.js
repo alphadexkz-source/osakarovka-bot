@@ -74,6 +74,7 @@ const warnInactiveDrivers = async () => {
     `SELECT u.phone, d.full_name FROM drivers d
      JOIN users u ON d.user_id = u.id
      WHERE d.status = 'online'
+       AND d.full_name IS NOT NULL
        AND d.last_activity < NOW() - make_interval(mins => $1)
        AND d.last_activity > NOW() - make_interval(mins => $2)`,
     [25, 28]
@@ -92,6 +93,27 @@ const checkAdminSessionTTL = async () => {
     `UPDATE sessions SET state='idle', ctx='{}'
      WHERE state LIKE 'admin%' AND state != 'admin_exit' AND updated_at < NOW() - INTERVAL '30 minutes'`
   ).catch(() => {});
+};
+
+const checkAbandonedRegistrations = async () => {
+  // Водители застрявшие в reg_* > 24ч → сбросить в client
+  const r = await db.query(`
+    UPDATE users u SET role='client'
+    FROM sessions s
+    WHERE s.phone = u.phone
+      AND u.role = 'driver'
+      AND s.state LIKE 'reg_%'
+      AND s.updated_at < NOW() - INTERVAL '24 hours'
+    RETURNING u.phone
+  `).then(r => r.rows).catch(() => []);
+  if (r.length) {
+    const phones = r.map(u => u.phone);
+    await db.query(
+      `UPDATE sessions SET state='idle', ctx='{}' WHERE phone = ANY($1)`,
+      [phones]
+    ).catch(() => {});
+    console.log(`[Timer] Сброшено заброшенных регистраций: ${r.length}`);
+  }
 };
 
 // ─── Возобновление диспетчеризации после ожидания офлайн-водителей ───────────
@@ -244,6 +266,7 @@ const start = () => {
       checkInactiveDrivers().catch(e => console.error('[Timer/auto_offline]', e.message)),
       warnInactiveDrivers().catch(e => console.error('[Timer/inactivity_warn]', e.message)),
       checkAdminSessionTTL().catch(e => console.error('[Timer/admin_ttl]', e.message)),
+      checkAbandonedRegistrations().catch(e => console.error('[Timer/abandoned_reg]', e.message)),
       q.cleanupMessageDedup().catch(() => {}),
       checkErrorSpike().catch(e => console.error('[Timer/error_spike]', e.message)),
     ]);
@@ -272,6 +295,7 @@ const start = () => {
         FROM drivers d
         JOIN users u ON d.user_id = u.id
         WHERE d.status = 'offline'
+          AND d.full_name IS NOT NULL AND d.car_plate IS NOT NULL
           AND d.last_activity > NOW() - INTERVAL '48 hours'
           AND d.order_balance > 0
       `);
@@ -295,6 +319,7 @@ const start = () => {
           SELECT u.phone, d.full_name FROM drivers d
           JOIN users u ON d.user_id = u.id
           WHERE d.status = 'offline' AND d.order_balance > 0
+            AND d.full_name IS NOT NULL AND d.car_plate IS NOT NULL
         `);
         await Promise.all(r.rows.map(d =>
           wa.sendText(d.phone,
@@ -312,6 +337,7 @@ const start = () => {
         SELECT u.phone, d.full_name, d.last_activity
         FROM drivers d JOIN users u ON d.user_id = u.id
         WHERE d.status = 'offline'
+          AND d.full_name IS NOT NULL AND d.car_plate IS NOT NULL
           AND d.last_activity < NOW() - INTERVAL '3 days'
           AND d.last_activity > NOW() - INTERVAL '30 days'
           AND d.order_balance > 0
@@ -332,6 +358,7 @@ const start = () => {
         SELECT u.phone, d.id, d.full_name, d.status
         FROM drivers d JOIN users u ON d.user_id = u.id
         WHERE d.last_activity > NOW() - INTERVAL '24 hours'
+          AND d.full_name IS NOT NULL AND d.car_plate IS NOT NULL
       `).then(r => r.rows).catch(() => []);
       await Promise.all(drivers.map(async d => {
         const stats = await q.getDriverTodayStats(d.id).catch(() => null);

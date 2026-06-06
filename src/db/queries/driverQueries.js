@@ -58,7 +58,9 @@ const setDriverStatus = async (phone, status) => {
 const getOnlineDriversQueue = async () => {
   const r = await db.query(
     `SELECT d.*,u.phone,u.name FROM drivers d JOIN users u ON d.user_id=u.id
-     WHERE d.status='online' AND d.order_balance>0 ORDER BY d.queue_position ASC`
+     WHERE d.status='online' AND d.order_balance>0
+       AND d.full_name IS NOT NULL AND d.car_plate IS NOT NULL
+     ORDER BY d.queue_position ASC`
   )
   return r.rows
 }
@@ -138,6 +140,7 @@ const getInactiveDrivers = async (minutes = 30) => {
   const r = await db.query(
     `SELECT d.*,u.phone FROM drivers d JOIN users u ON d.user_id=u.id
      WHERE d.status='online'
+       AND d.full_name IS NOT NULL
        AND d.last_activity < NOW() - make_interval(mins => $1::int)`,
     [minutes]
   )
@@ -148,6 +151,7 @@ const getLongWaitDrivers = async (minutes = 60) => {
   const r = await db.query(
     `SELECT d.*,u.phone FROM drivers d JOIN users u ON d.user_id=u.id
      WHERE d.status='online'
+       AND d.full_name IS NOT NULL
        AND d.last_activity < NOW() - make_interval(mins => $1::int)
        AND NOT EXISTS(
          SELECT 1 FROM orders o WHERE o.driver_id=d.id AND o.created_at::date=CURRENT_DATE
