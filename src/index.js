@@ -113,6 +113,30 @@ app.post('/webhook', async (req, res) => {
   }
 });
 
+// ─── Tender OAuth callback ────────────────────────────────────
+app.get('/tender/callback', async (req, res) => {
+  const { code, error } = req.query;
+  if (error) {
+    return res.send(`<!DOCTYPE html><html><body style="font-family:sans-serif;text-align:center;padding:40px">
+      <h2>❌ Ошибка авторизации</h2><p>${error}</p><p>Закройте вкладку и попробуйте снова.</p></body></html>`);
+  }
+  if (!code) {
+    return res.send(`<!DOCTYPE html><html><body style="font-family:sans-serif;text-align:center;padding:40px">
+      <h2>❌ Код не получен</h2></body></html>`);
+  }
+  try {
+    const tenders = require('../agent/tenders');
+    await tenders.exchangeCode(code);
+    res.send(`<!DOCTYPE html><html><body style="font-family:sans-serif;text-align:center;padding:40px">
+      <h2>✅ Авторизация успешна!</h2>
+      <p>Вернитесь в Telegram и нажмите <b>🏛 Тендеры</b> снова.</p>
+      <p style="color:gray">Вкладку можно закрыть.</p></body></html>`);
+  } catch(e) {
+    res.send(`<!DOCTYPE html><html><body style="font-family:sans-serif;text-align:center;padding:40px">
+      <h2>❌ ${e.message}</h2></body></html>`);
+  }
+});
+
 // ─── Health check ─────────────────────────────────────────────
 app.get('/', (req, res) => {
   res.json({ service: 'еОсакаровка Сервис', status: 'running', time: new Date().toISOString() });

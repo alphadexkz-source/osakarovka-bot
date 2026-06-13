@@ -3,6 +3,7 @@ require('dotenv').config({ path: require('path').join(__dirname, '../.env') })
 
 const TelegramBot = require('node-telegram-bot-api')
 const { monitorBot, analyze, freeChat } = require('./hermes')
+const tenders = require('./tenders')
 const tools  = require('./tools')
 const memory = require('./memory')
 const q      = require('../src/db/queries')
@@ -46,7 +47,8 @@ const MAIN = { reply_markup: { inline_keyboard: [
    { text: '🤖 Монит./Деплой',   callback_data: 'menu_monitor'       }],
   [{ text: '📝 Задачи',          callback_data: 'menu_tasks'         },
    { text: '💬 Спросить агента', callback_data: 'ask_start'          }],
-  [{ text: '🧠 ИИ Ассистент',   callback_data: 'free_chat_start'    }],
+  [{ text: '🧠 ИИ Ассистент',   callback_data: 'free_chat_start'    },
+   { text: '🏛 Тендеры',        callback_data: 'tender_menu'        }],
 ]}}
 
 const BACK  = { reply_markup: { inline_keyboard: [[{ text: '◀️ Меню', callback_data: 'main' }]] }}
@@ -637,6 +639,64 @@ bot.on('callback_query', async (cb) => {
       ); return
     }
 
+    // ── ТЕНДЕРЫ (10b.kz госзакуп + самрук) ────────────────
+    if (data === 'tender_menu') {
+      const auth = await tenders.isAuthorized()
+      if (!auth) {
+        const url = tenders.getAuthUrl()
+        if (!url) {
+          edit(cid, mid,
+            '🏛 *Тендеры 10b.kz*\n\n❌ Не задан TENDER_CLIENT_ID в .env\n\nДобавьте переменные и перезапустите.',
+            KB([{ text: '◀️ Меню', callback_data: 'main' }])
+          ); return
+        }
+        edit(cid, mid,
+          '🏛 *Тендеры 10b.kz*\n\n🔐 Требуется авторизация.\n\nНажмите кнопку — откроется браузер, войдите через 10b.kz и вернитесь сюда.',
+          KB(
+            [{ text: '🔑 Авторизоваться', url }],
+            [{ text: '🔄 Проверить авторизацию', callback_data: 'tender_menu' }],
+            [{ text: '◀️ Меню', callback_data: 'main' }]
+          )
+        ); return
+      }
+      edit(cid, mid, '🏛 *Тендеры 10b.kz*\n\n✅ Авторизован',
+        KB(
+          [{ text: '🔍 Найти лоты',      callback_data: 'tender_search_start' }],
+          [{ text: '🛠 Список инструментов', callback_data: 'tender_tools'     }],
+          [{ text: '💬 ИИ-анализ лота',  callback_data: 'tender_analyze_start'}],
+          [{ text: '🔓 Выйти',           callback_data: 'tender_logout'       }],
+          [{ text: '◀️ Меню',            callback_data: 'main'                }]
+        )
+      ); return
+    }
+    if (data === 'tender_tools') {
+      edit(cid, mid, '🛠 Загружаю инструменты...', BACK)
+      try {
+        const tools = await tenders.listTools()
+        const lines = tools.map(t => `• *${t.name}*\n  _${t.description||''}_`).join('\n\n')
+        send(cid, `🛠 *Инструменты 10b.kz (${tools.length}):*\n\n${lines||'нет данных'}`,
+          KB([{ text: '◀️ Тендеры', callback_data: 'tender_menu' }])
+        )
+      } catch(e) { send(cid, `❌ ${e.message}`, KB([{ text: '◀️ Тендеры', callback_data: 'tender_menu' }])) }
+      return
+    }
+    if (data === 'tender_search_start') {
+      conv.set(cid, { step: 'tender_search' })
+      edit(cid, mid, '🔍 *Поиск лотов*\n\nВведите ключевые слова (например: *уборка улиц* или *транспортные услуги*):\n\n/cancel',
+        KB([{ text: '◀️ Тендеры', callback_data: 'tender_menu' }])
+      ); return
+    }
+    if (data === 'tender_analyze_start') {
+      conv.set(cid, { step: 'tender_analyze' })
+      edit(cid, mid, '💬 *ИИ-анализ лота*\n\nВставьте ID лота или ссылку на него — Claude разберёт условия, требования и риски:\n\n/cancel',
+        KB([{ text: '◀️ Тендеры', callback_data: 'tender_menu' }])
+      ); return
+    }
+    if (data === 'tender_logout') {
+      await tenders.revokeAuth()
+      edit(cid, mid, '✅ Авторизация удалена.', KB([{ text: '◀️ Тендеры', callback_data: 'tender_menu' }])); return
+    }
+
     // ── РУЧНОЙ ЗАКАЗ — финальный шаг ──────────────────────
     if (data === 'manual_order_exec') {
       const st = conv.get(cid); conv.delete(cid)
@@ -712,6 +772,68 @@ bot.on('message', async (msg) => {
       // удаляем "🤔 ..." и отправляем ответ
       bot.deleteMessage(cid, thinking.message_id).catch(() => {})
       send(cid, reply.slice(0, 4000), KB([{ text: '◀️ Выйти', callback_data: 'main' }]))
+      return
+    }
+
+    // ── тендеры ───────────────────────────────────────────
+    if (st.step === 'tender_search') {
+      conv.delete(cid)
+      const q = text.trim()
+      await send(cid, `🔍 Ищу лоты: *${q}*...`)
+      try {
+        const toolList = await tenders.listTools()
+        const searchTool = toolList.find(t => /search|lot|find|поис/i.test(t.name))
+        if (!searchTool) {
+          send(cid, `❌ Инструмент поиска не найден.\nДоступные: ${toolList.map(t=>t.name).join(', ')}`,
+            KB([{ text: '◀️ Тендеры', callback_data: 'tender_menu' }]))
+          return
+        }
+        const result = await tenders.callTool(searchTool.name, { query: q })
+        const summary = await freeChat(
+          `Вот результаты поиска тендеров по запросу "${q}":\n\n${result.slice(0, 3000)}\n\nКратко опиши найденные лоты — название, сумма, заказчик, сроки.`,
+          []
+        )
+        send(cid, summary.slice(0, 4000),
+          KB(
+            [{ text: '🔍 Новый поиск', callback_data: 'tender_search_start' }],
+            [{ text: '◀️ Тендеры',    callback_data: 'tender_menu'         }]
+          )
+        )
+      } catch(e) {
+        send(cid, `❌ ${e.message}`, KB([{ text: '◀️ Тендеры', callback_data: 'tender_menu' }]))
+      }
+      return
+    }
+
+    if (st.step === 'tender_analyze') {
+      conv.delete(cid)
+      await send(cid, '🤔 Анализирую лот через ИИ...')
+      try {
+        const toolList = await tenders.listTools()
+        const getLotTool = toolList.find(t => /get|lot|detail|card/i.test(t.name))
+        let rawData = text.trim()
+        if (getLotTool) {
+          // Попробуем получить данные лота по ID/ссылке
+          const idMatch = text.match(/\d{5,}/)
+          if (idMatch) {
+            try {
+              rawData = await tenders.callTool(getLotTool.name, { id: idMatch[0], lot_id: idMatch[0] })
+            } catch(_) {}
+          }
+        }
+        const analysis = await freeChat(
+          `Проанализируй этот тендерный лот. Выдели:\n1. Что требуется\n2. Сумма и условия\n3. Сроки\n4. Требования к участнику\n5. Риски и подводные камни\n\nЛот:\n${rawData.slice(0, 3000)}`,
+          []
+        )
+        send(cid, analysis.slice(0, 4000),
+          KB(
+            [{ text: '💬 Другой лот', callback_data: 'tender_analyze_start' }],
+            [{ text: '◀️ Тендеры',   callback_data: 'tender_menu'          }]
+          )
+        )
+      } catch(e) {
+        send(cid, `❌ ${e.message}`, KB([{ text: '◀️ Тендеры', callback_data: 'tender_menu' }]))
+      }
       return
     }
 
