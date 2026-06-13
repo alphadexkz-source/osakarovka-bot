@@ -17,109 +17,70 @@ const conv = new Map() // chatId → { step, data, ... }
 
 const isAdmin = (id) => !ADMIN_ID || id === ADMIN_ID
 
-// ── helpers ───────────────────────────────────────────────────
+// ── helpers ────────────────────────────────────────────────────
 const send = (cid, text, extra = {}) =>
   bot.sendMessage(cid, text, { parse_mode: 'Markdown', ...extra })
-    .catch(() => bot.sendMessage(cid, text.replace(/[*_`]/g, ''), extra))
+    .catch(() => bot.sendMessage(cid, text.replace(/[*_`[\]]/g, ''), extra))
 
 const edit = (cid, mid, text, extra = {}) =>
   bot.editMessageText(text, { chat_id: cid, message_id: mid, parse_mode: 'Markdown', ...extra })
     .catch(() => {})
 
-// ── keyboards ─────────────────────────────────────────────────
+const db = (sql, params = []) => tools.queryDB(sql, params)
+
+// ── keyboards ──────────────────────────────────────────────────
 const MAIN = { reply_markup: { inline_keyboard: [
-  [{ text: '📊 Статистика',      callback_data: 'stats_today' },
-   { text: '🚖 Активные заказы', callback_data: 'orders' }],
-  [{ text: '👥 Водители',        callback_data: 'menu_drivers' },
-   { text: '📋 Тарифы',          callback_data: 'menu_tariffs' }],
-  [{ text: '📢 Рассылка',        callback_data: 'menu_broadcast' },
-   { text: '🚫 Чёрный список',   callback_data: 'blacklist' }],
-  [{ text: '🔍 Найти клиента',   callback_data: 'client_start' },
-   { text: '⚙️ Настройки',       callback_data: 'menu_settings' }],
-  [{ text: '🤖 Мониторинг',      callback_data: 'menu_monitor' },
-   { text: '💬 Спросить агента', callback_data: 'ask_start' }],
-  [{ text: '📝 Задачи для Claude Code', callback_data: 'menu_tasks' }],
+  [{ text: '📊 Статистика',      callback_data: 'stats_today'   },
+   { text: '🚖 Заказы',          callback_data: 'menu_orders'   }],
+  [{ text: '👥 Водители',        callback_data: 'menu_drivers'  },
+   { text: '📋 Тарифы',          callback_data: 'menu_tariffs'  }],
+  [{ text: '🔍 Клиент',          callback_data: 'client_start'  },
+   { text: '💰 Финансы',         callback_data: 'menu_finance'  }],
+  [{ text: '📢 Рассылка',        callback_data: 'menu_broadcast'},
+   { text: '🚫 Чёрный список',   callback_data: 'blacklist'     }],
+  [{ text: '⚙️ Настройки',       callback_data: 'menu_settings' },
+   { text: '⚡ Быстро',          callback_data: 'menu_quick'    }],
+  [{ text: '🤖 Мониторинг',      callback_data: 'menu_monitor'  },
+   { text: '📝 Задачи',          callback_data: 'menu_tasks'    }],
+  [{ text: '💬 Спросить агента', callback_data: 'ask_start'     }],
 ]}}
 
-const STATS_KB = { reply_markup: { inline_keyboard: [
-  [{ text: '📊 Сегодня', callback_data: 'stats_today' },
-   { text: '📅 Неделя',  callback_data: 'stats_week' },
-   { text: '🗓 Месяц',   callback_data: 'stats_month' }],
-  [{ text: '🏆 Топ водителей', callback_data: 'stats_top' }],
-  [{ text: '◀️ Меню', callback_data: 'main' }],
-]}}
-
-const DRIVERS_KB = { reply_markup: { inline_keyboard: [
-  [{ text: '📋 Список', callback_data: 'drivers_list' }],
-  [{ text: '💰 Пополнить баланс',  callback_data: 'driver_balance_start' },
-   { text: '🚫 Заблокировать',     callback_data: 'driver_block_start' }],
-  [{ text: '✅ Разблокировать',    callback_data: 'driver_unblock_start' },
-   { text: '⭐ Сбросить рейтинг', callback_data: 'driver_rating_start' }],
-  [{ text: '◀️ Меню', callback_data: 'main' }],
-]}}
-
-const TARIFFS_KB = { reply_markup: { inline_keyboard: [
-  [{ text: '📋 Список', callback_data: 'tariffs_list' }],
-  [{ text: '➕ Добавить',  callback_data: 'tariff_add_start' },
-   { text: '✏️ Изменить', callback_data: 'tariff_edit_start' },
-   { text: '🗑 Удалить',  callback_data: 'tariff_del_start' }],
-  [{ text: '◀️ Меню', callback_data: 'main' }],
-]}}
-
-const BROADCAST_KB = { reply_markup: { inline_keyboard: [
-  [{ text: '👤 Клиентам',   callback_data: 'broadcast_clients' },
-   { text: '🚗 Водителям', callback_data: 'broadcast_drivers' }],
-  [{ text: '◀️ Меню', callback_data: 'main' }],
-]}}
-
-const SETTINGS_KB = { reply_markup: { inline_keyboard: [
-  [{ text: '📋 Режим: Очередь', callback_data: 'mode_queue' },
-   { text: '⚡ Режим: Первый',  callback_data: 'mode_first' }],
-  [{ text: '🎁 Акции / Лояльность', callback_data: 'loyalty_info' }],
-  [{ text: '◀️ Меню', callback_data: 'main' }],
-]}}
-
-const MONITOR_KB = { reply_markup: { inline_keyboard: [
-  [{ text: '🔍 Проверить',       callback_data: 'monitor_run' },
-   { text: '📜 Логи',            callback_data: 'monitor_logs' }],
-  [{ text: '🧠 Память агента',   callback_data: 'monitor_memory' },
-   { text: '🔄 Перезапустить',   callback_data: 'monitor_restart' }],
-  [{ text: '◀️ Меню', callback_data: 'main' }],
-]}}
-
-const BACK = { reply_markup: { inline_keyboard: [[{ text: '◀️ Меню', callback_data: 'main' }]] }}
-
+const BACK  = { reply_markup: { inline_keyboard: [[{ text: '◀️ Меню', callback_data: 'main' }]] }}
 const CONFIRM = (yes, no) => ({ reply_markup: { inline_keyboard: [
   [{ text: '✅ Да', callback_data: yes }, { text: '❌ Отмена', callback_data: no }]
 ]}})
 
-// ── formatters ────────────────────────────────────────────────
+const KB = (...rows) => ({ reply_markup: { inline_keyboard: rows } })
+
+// ── formatters ─────────────────────────────────────────────────
 const fmtTariffs = (list) => list.map((t, i) =>
   `*${i+1}.* ${t.name} — ${t.day_price} тг${t.night_price ? ` / ночь ${t.night_price} тг` : ''}\n   🔑 ${(t.keywords||[]).slice(0,5).join(', ')}`
 ).join('\n\n')
 
-const fmtDrivers = (list) => list.slice(0, 25).map(d =>
-  `${d.status==='online'?'🟢':d.status==='busy'?'🟡':'⚫'} *${d.full_name}* ⭐${Number(d.rating||5).toFixed(1)} | Bal:${d.order_balance} | ${d.phone}`
+const fmtDrivers = (list) => list.slice(0, 20).map(d =>
+  `${d.status==='online'?'🟢':d.status==='busy'?'🟡':'⚫'} *${d.full_name}* ⭐${Number(d.rating||5).toFixed(1)} | ${d.order_balance} | ${d.phone}`
 ).join('\n')
 
-// ── /start ────────────────────────────────────────────────────
+const STATUS_ICON = { searching:'🟡', accepted:'🟢', arrived:'🚗', in_trip:'🛣', completed:'✅', cancelled:'❌', scheduled:'🕐' }
+const fmtOrder = (o) =>
+  `${STATUS_ICON[o.status]||'⬜'} *#${o.id}* ${o.destination} — ${o.price} тг\n` +
+  `👤 ${o.client_name||o.client_phone||'?'} ${o.driver_name ? `| 🚗 ${o.driver_name}` : ''}\n` +
+  `🕐 ${new Date(o.created_at).toLocaleString('ru-RU',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'})}`
+
+// ── /start ─────────────────────────────────────────────────────
 bot.onText(/\/start/, (msg) => {
   if (!isAdmin(msg.from.id)) return
   conv.delete(msg.chat.id)
-  send(msg.chat.id,
-    `👨‍💼 *Панель администратора еОсакаровка*\n\n_chat\\_id: ${msg.chat.id}_`,
-    MAIN
-  )
+  send(msg.chat.id, `👨‍💼 *Панель администратора еОсакаровка*\n\n_chat\\_id: ${msg.chat.id}_`, MAIN)
 })
 
-// ── /cancel ───────────────────────────────────────────────────
 bot.onText(/\/cancel/, (msg) => {
   if (!isAdmin(msg.from.id)) return
   conv.delete(msg.chat.id)
   send(msg.chat.id, '↩️ Отменено.', MAIN)
 })
 
-// ── callback_query ────────────────────────────────────────────
+// ── callback_query ─────────────────────────────────────────────
 bot.on('callback_query', async (cb) => {
   if (!isAdmin(cb.from.id)) return bot.answerCallbackQuery(cb.id)
   const cid  = cb.message.chat.id
@@ -127,123 +88,307 @@ bot.on('callback_query', async (cb) => {
   const data = cb.data
   bot.answerCallbackQuery(cb.id)
 
-  // сброс состояния при нажатии кнопки (кроме confirm-шагов)
-  if (!data.endsWith('_confirm_yes') && !data.endsWith('_confirm_no') && data !== 'restart_confirm') {
-    conv.delete(cid)
-  }
+  const KEEP_STATE = ['broadcast_confirm_yes','broadcast_confirm_no','restart_confirm','tariff_del_confirm_yes','order_cancel_confirm']
+  if (!KEEP_STATE.includes(data)) conv.delete(cid)
 
   try {
     // ── главное меню ───────────────────────────────────────
-    if (data === 'main') {
-      edit(cid, mid, '👨‍💼 *Панель администратора*', MAIN); return
-    }
+    if (data === 'main') { edit(cid, mid, '👨‍💼 *Панель администратора*', MAIN); return }
 
-    // ── статистика ─────────────────────────────────────────
+    // ── СТАТИСТИКА ─────────────────────────────────────────
     if (data === 'stats_today') {
       const [s, d] = await Promise.all([q.getTodayStats(), q.getAllDrivers()])
       const on = d.filter(x => ['online','busy'].includes(x.status)).length
+      const convRate = s.total > 0 ? Math.round(s.completed / s.total * 100) : 0
       edit(cid, mid,
         `📊 *Статистика сегодня:*\n\n` +
-        `🚖 Выполнено: *${s.completed}*\n` +
-        `❌ Отменено: *${s.cancelled}*\n` +
-        `📦 Всего: *${s.total}*\n` +
+        `🚖 Выполнено: *${s.completed}* | Отменено: *${s.cancelled}*\n` +
+        `📦 Всего: *${s.total}* | Конверсия: *${convRate}%*\n` +
         `💰 Оборот: *${Number(s.revenue||0).toLocaleString()} тг*\n` +
         `💵 Комиссия (10%): *${Number(s.commission||0).toLocaleString()} тг*\n\n` +
         `👥 Онлайн: *${on}/${d.length}*`,
-        STATS_KB
+        KB(
+          [{ text: '📅 Неделя', callback_data: 'stats_week' }, { text: '🗓 Месяц', callback_data: 'stats_month' }],
+          [{ text: '🏆 Топ водителей', callback_data: 'stats_top' }, { text: '📈 Аналитика', callback_data: 'stats_analytics' }],
+          [{ text: '◀️ Меню', callback_data: 'main' }]
+        )
       ); return
     }
     if (data === 'stats_week') {
       const s = await q.getPeriodStats(7)
       edit(cid, mid,
-        `📅 *За 7 дней:*\n\n🚖 Выполнено: *${s.completed}*\n❌ Отменено: *${s.cancelled}*\n` +
-        `💰 Оборот: *${Number(s.revenue||0).toLocaleString()} тг*\n💵 Комиссия: *${Number(s.commission||0).toLocaleString()} тг*\n👤 Клиентов: *${s.unique_clients}*`,
-        STATS_KB
+        `📅 *За 7 дней:*\n\n🚖 Выполнено: *${s.completed}* | Отменено: *${s.cancelled}*\n` +
+        `💰 Оборот: *${Number(s.revenue||0).toLocaleString()} тг*\n` +
+        `💵 Комиссия: *${Number(s.commission||0).toLocaleString()} тг*\n👤 Уникальных клиентов: *${s.unique_clients}*`,
+        KB([{ text: '◀️ Статистика', callback_data: 'stats_today' }])
       ); return
     }
     if (data === 'stats_month') {
       const s = await q.getPeriodStats(30)
       edit(cid, mid,
-        `🗓 *За 30 дней:*\n\n🚖 Выполнено: *${s.completed}*\n❌ Отменено: *${s.cancelled}*\n` +
-        `💰 Оборот: *${Number(s.revenue||0).toLocaleString()} тг*\n💵 Комиссия: *${Number(s.commission||0).toLocaleString()} тг*\n👤 Клиентов: *${s.unique_clients}*`,
-        STATS_KB
+        `🗓 *За 30 дней:*\n\n🚖 Выполнено: *${s.completed}* | Отменено: *${s.cancelled}*\n` +
+        `💰 Оборот: *${Number(s.revenue||0).toLocaleString()} тг*\n` +
+        `💵 Комиссия: *${Number(s.commission||0).toLocaleString()} тг*\n👤 Уникальных клиентов: *${s.unique_clients}*`,
+        KB([{ text: '◀️ Статистика', callback_data: 'stats_today' }])
       ); return
     }
     if (data === 'stats_top') {
       const top = await q.getTopDrivers(7)
-      const lines = top.map((d,i) => `*${i+1}.* ${d.full_name} — ${d.trips} поезд. | ⭐${Number(d.avg_rating||5).toFixed(1)}`).join('\n')
-      edit(cid, mid, `🏆 *Топ водителей (7 дней):*\n\n${lines||'Нет данных'}`, STATS_KB); return
+      const lines = top.map((d,i) => `*${i+1}.* ${d.full_name} — ${d.trips} поезд. ⭐${Number(d.avg_rating||5).toFixed(1)}`).join('\n')
+      edit(cid, mid, `🏆 *Топ водителей (7 дней):*\n\n${lines||'Нет данных'}`, KB([{ text: '◀️ Статистика', callback_data: 'stats_today' }])); return
+    }
+    if (data === 'stats_analytics') {
+      const r = await db(`
+        SELECT
+          COUNT(*) FILTER(WHERE status='completed') AS completed,
+          COUNT(*) FILTER(WHERE status='cancelled') AS cancelled,
+          ROUND(AVG(EXTRACT(EPOCH FROM (accepted_at - created_at))/60)::numeric, 1) AS avg_accept_min,
+          COUNT(*) FILTER(WHERE is_intercity=true) AS intercity,
+          COUNT(*) FILTER(WHERE is_free=true) AS free_trips
+        FROM orders WHERE created_at >= NOW() - INTERVAL '7 days'
+      `)
+      const s = r.rows?.[0] || {}
+      edit(cid, mid,
+        `📈 *Аналитика за 7 дней:*\n\n` +
+        `✅ Выполнено: *${s.completed}* | ❌ Отменено: *${s.cancelled}*\n` +
+        `⏱ Среднее время принятия: *${s.avg_accept_min||'?'} мин*\n` +
+        `🚗 Межгород: *${s.intercity}* | 🎁 Бесплатных: *${s.free_trips}*`,
+        KB([{ text: '◀️ Статистика', callback_data: 'stats_today' }])
+      ); return
     }
 
-    // ── активные заказы ────────────────────────────────────
-    if (data === 'orders') {
+    // ── ЗАКАЗЫ ─────────────────────────────────────────────
+    if (data === 'menu_orders') {
+      edit(cid, mid, '🚖 *Заказы*',
+        KB(
+          [{ text: '🔴 Активные', callback_data: 'orders_active' }, { text: '📜 История', callback_data: 'orders_history' }],
+          [{ text: '🔍 Найти #ID', callback_data: 'order_find_start' }, { text: '❌ Отменить #ID', callback_data: 'order_cancel_start' }],
+          [{ text: '◀️ Меню', callback_data: 'main' }]
+        )
+      ); return
+    }
+    if (data === 'orders_active') {
       const orders = await q.getActiveOrders()
-      if (!orders.length) { edit(cid, mid, '✅ *Активных заказов нет*', BACK); return }
-      const ICON = { searching:'🟡', accepted:'🟢', arrived:'🚗', in_trip:'🛣' }
+      if (!orders.length) { edit(cid, mid, '✅ *Активных заказов нет*', KB([{ text: '◀️ Назад', callback_data: 'menu_orders' }])); return }
       const lines = orders.map(o => {
         const mins = Math.round((Date.now() - new Date(o.created_at)) / 60000)
-        return `${ICON[o.status]||'⬜'} *${o.destination}* — ${o.price} тг · ${o.client_name}${o.driver_name?' · '+o.driver_name:''} (${mins} мин)`
+        return `${STATUS_ICON[o.status]||'⬜'} *${o.destination}* — ${o.price} тг · ${o.client_name}${o.driver_name?' · '+o.driver_name:''} (${mins} мин)`
       }).join('\n')
-      edit(cid, mid, `🚖 *Активные заказы (${orders.length}):*\n\n${lines}`, BACK); return
+      edit(cid, mid, `🚖 *Активные (${orders.length}):*\n\n${lines}`, KB([{ text: '🔄 Обновить', callback_data: 'orders_active' }, { text: '◀️ Назад', callback_data: 'menu_orders' }])); return
+    }
+    if (data === 'orders_history') {
+      const r = await db(`
+        SELECT o.id, o.destination, o.price, o.status, o.created_at,
+          u.name AS client_name, d.full_name AS driver_name
+        FROM orders o
+        LEFT JOIN users u ON o.client_id=u.id
+        LEFT JOIN drivers d ON o.driver_id=d.id
+        ORDER BY o.created_at DESC LIMIT 15
+      `)
+      const rows = r.rows || []
+      const lines = rows.map(o => fmtOrder(o)).join('\n\n')
+      edit(cid, mid, `📜 *Последние заказы:*\n\n${lines||'Нет'}`, KB([{ text: '◀️ Назад', callback_data: 'menu_orders' }])); return
+    }
+    if (data === 'order_find_start') {
+      conv.set(cid, { step: 'order_find' })
+      edit(cid, mid, '🔍 *Найти заказ*\n\nВведите ID заказа (#номер):\n\n/cancel', BACK); return
+    }
+    if (data === 'order_cancel_start') {
+      conv.set(cid, { step: 'order_cancel' })
+      edit(cid, mid, '❌ *Отменить заказ*\n\nВведите ID активного заказа:\n\n/cancel', BACK); return
+    }
+    if (data === 'order_cancel_confirm') {
+      const st = conv.get(cid); conv.delete(cid)
+      if (!st?.order_id) { edit(cid, mid, '❌ Ошибка', BACK); return }
+      await db(`UPDATE orders SET status='cancelled', cancelled_at=NOW() WHERE id=$1 AND status NOT IN('completed','cancelled')`, [st.order_id])
+      send(cid, `✅ Заказ *#${st.order_id}* отменён.`, KB([{ text: '◀️ Заказы', callback_data: 'menu_orders' }])); return
     }
 
-    // ── водители ───────────────────────────────────────────
-    if (data === 'menu_drivers') { edit(cid, mid, '👥 *Водители*', DRIVERS_KB); return }
+    // ── ВОДИТЕЛИ ───────────────────────────────────────────
+    if (data === 'menu_drivers') {
+      edit(cid, mid, '👥 *Водители*',
+        KB(
+          [{ text: '📋 Список', callback_data: 'drivers_list' }, { text: '👤 Профиль', callback_data: 'driver_profile_start' }],
+          [{ text: '💰 Баланс', callback_data: 'driver_balance_start' }, { text: '📜 История поездок', callback_data: 'driver_history_start' }],
+          [{ text: '⏹ Offline (один)', callback_data: 'driver_forceoff_start' }, { text: '⏹ Offline (все)', callback_data: 'driver_alloff' }],
+          [{ text: '🚫 Заблокировать', callback_data: 'driver_block_start' }, { text: '✅ Разблокировать', callback_data: 'driver_unblock_start' }],
+          [{ text: '⭐ Сбросить рейтинг', callback_data: 'driver_rating_start' }],
+          [{ text: '◀️ Меню', callback_data: 'main' }]
+        )
+      ); return
+    }
     if (data === 'drivers_list') {
       const list = await q.getAllDrivers()
       const on = list.filter(d => ['online','busy'].includes(d.status)).length
-      edit(cid, mid, `👥 *Водители (${on} онлайн из ${list.length}):*\n\n${fmtDrivers(list)||'Нет'}`, DRIVERS_KB); return
+      edit(cid, mid, `👥 *Водители (${on} онлайн из ${list.length}):*\n\n${fmtDrivers(list)||'Нет'}`, KB([{ text: '◀️ Назад', callback_data: 'menu_drivers' }])); return
+    }
+    if (data === 'driver_profile_start') {
+      conv.set(cid, { step: 'driver_profile' })
+      edit(cid, mid, '👤 *Профиль водителя*\n\nВведите номер телефона:\n\n/cancel', BACK); return
+    }
+    if (data === 'driver_history_start') {
+      conv.set(cid, { step: 'driver_history' })
+      edit(cid, mid, '📜 *История поездок водителя*\n\nВведите номер телефона:\n\n/cancel', BACK); return
+    }
+    if (data === 'driver_forceoff_start') {
+      conv.set(cid, { step: 'driver_forceoff' })
+      edit(cid, mid, '⏹ *Перевести водителя offline*\n\nВведите номер телефона:\n\n/cancel', BACK); return
+    }
+    if (data === 'driver_alloff') {
+      edit(cid, mid, '⚠️ *Перевести ВСЕХ водителей offline?*', CONFIRM('driver_alloff_yes', 'menu_drivers')); return
+    }
+    if (data === 'driver_alloff_yes') {
+      conv.delete(cid)
+      await db(`UPDATE drivers SET status='offline', queue_position=NULL WHERE status IN ('online','busy')`)
+      send(cid, '✅ Все водители переведены offline.', KB([{ text: '◀️ Назад', callback_data: 'menu_drivers' }])); return
     }
     if (data === 'driver_balance_start') {
       conv.set(cid, { step: 'driver_balance' })
-      edit(cid, mid, '💰 *Пополнение баланса*\n\nФормат: `+50 77001234567`\n(сумма и номер через пробел)\n\n/cancel — отмена', BACK); return
+      edit(cid, mid, '💰 *Пополнение баланса*\n\nФормат: `+50 77001234567`\n\n/cancel', BACK); return
     }
     if (data === 'driver_block_start') {
       conv.set(cid, { step: 'driver_block' })
-      edit(cid, mid, '🚫 *Блокировка водителя*\n\nВведите номер (без +):\n\n/cancel — отмена', BACK); return
+      edit(cid, mid, '🚫 *Блокировка водителя*\n\nВведите номер:\n\n/cancel', BACK); return
     }
     if (data === 'driver_unblock_start') {
       conv.set(cid, { step: 'driver_unblock' })
-      edit(cid, mid, '✅ *Разблокировка водителя*\n\nВведите номер:\n\n/cancel — отмена', BACK); return
+      edit(cid, mid, '✅ *Разблокировка водителя*\n\nВведите номер:\n\n/cancel', BACK); return
     }
     if (data === 'driver_rating_start') {
       conv.set(cid, { step: 'driver_rating' })
-      edit(cid, mid, '⭐ *Сброс рейтинга*\n\nВведите номер водителя:\n\n/cancel — отмена', BACK); return
+      edit(cid, mid, '⭐ *Сброс рейтинга*\n\nВведите номер водителя:\n\n/cancel', BACK); return
     }
 
-    // ── тарифы ─────────────────────────────────────────────
-    if (data === 'menu_tariffs') { edit(cid, mid, '📋 *Тарифы*', TARIFFS_KB); return }
+    // ── ТАРИФЫ ─────────────────────────────────────────────
+    if (data === 'menu_tariffs') {
+      edit(cid, mid, '📋 *Тарифы*',
+        KB(
+          [{ text: '📋 Список', callback_data: 'tariffs_list' }],
+          [{ text: '➕ Добавить', callback_data: 'tariff_add_start' }, { text: '✏️ Изменить', callback_data: 'tariff_edit_start' }, { text: '🗑 Удалить', callback_data: 'tariff_del_start' }],
+          [{ text: '◀️ Меню', callback_data: 'main' }]
+        )
+      ); return
+    }
     if (data === 'tariffs_list') {
       const list = await q.getTariffs()
-      edit(cid, mid, `📋 *Тарифы (${list.length}):*\n\n${fmtTariffs(list)||'Нет тарифов'}`, TARIFFS_KB); return
+      edit(cid, mid, `📋 *Тарифы (${list.length}):*\n\n${fmtTariffs(list)||'Нет тарифов'}`, KB([{ text: '◀️ Назад', callback_data: 'menu_tariffs' }])); return
     }
     if (data === 'tariff_add_start') {
       conv.set(cid, { step: 'tariff_add_1', data: {} })
-      edit(cid, mid, '➕ *Новый тариф — Шаг 1/4*\n\nВведите *название* направления:\n\n/cancel — отмена', BACK); return
+      edit(cid, mid, '➕ *Новый тариф — Шаг 1/4*\n\nВведите *название* направления:\n\n/cancel', BACK); return
     }
     if (data === 'tariff_edit_start') {
       const list = await q.getTariffs()
-      if (!list.length) { edit(cid, mid, '❌ Тарифов нет', TARIFFS_KB); return }
+      if (!list.length) { edit(cid, mid, '❌ Тарифов нет', KB([{ text: '◀️ Назад', callback_data: 'menu_tariffs' }])); return }
       conv.set(cid, { step: 'tariff_edit_pick', tariffs: list })
-      edit(cid, mid, `✏️ *Изменить тариф*\n\nВведите номер:\n\n${fmtTariffs(list)}\n\n/cancel — отмена`, BACK); return
+      edit(cid, mid, `✏️ *Изменить тариф*\n\nВведите номер:\n\n${fmtTariffs(list)}\n\n/cancel`, BACK); return
     }
     if (data === 'tariff_del_start') {
       const list = await q.getTariffs()
-      if (!list.length) { edit(cid, mid, '❌ Тарифов нет', TARIFFS_KB); return }
+      if (!list.length) { edit(cid, mid, '❌ Тарифов нет', KB([{ text: '◀️ Назад', callback_data: 'menu_tariffs' }])); return }
       conv.set(cid, { step: 'tariff_del_pick', tariffs: list })
-      edit(cid, mid, `🗑 *Удалить тариф*\n\nВведите номер:\n\n${fmtTariffs(list)}\n\n/cancel — отмена`, BACK); return
+      edit(cid, mid, `🗑 *Удалить тариф*\n\nВведите номер:\n\n${fmtTariffs(list)}\n\n/cancel`, BACK); return
+    }
+    if (data === 'tariff_del_confirm_yes') {
+      const st = conv.get(cid); conv.delete(cid)
+      if (!st?.tariff) return
+      await q.deleteTariff(st.tariff.id)
+      send(cid, `🗑 Тариф *${st.tariff.name}* удалён.`, KB([{ text: '◀️ Назад', callback_data: 'menu_tariffs' }])); return
     }
 
-    // ── рассылка ───────────────────────────────────────────
-    if (data === 'menu_broadcast') { edit(cid, mid, '📢 *Рассылка*', BROADCAST_KB); return }
-    if (data === 'broadcast_clients') {
-      conv.set(cid, { step: 'broadcast_text', target: 'client' })
-      edit(cid, mid, '📢 *Рассылка клиентам*\n\nВведите текст:\n\n/cancel — отмена', BACK); return
+    // ── КЛИЕНТ ─────────────────────────────────────────────
+    if (data === 'client_start') {
+      conv.set(cid, { step: 'client_lookup' })
+      edit(cid, mid, '🔍 *Найти клиента*\n\nВведите номер телефона:\n\n/cancel', BACK); return
     }
-    if (data === 'broadcast_drivers') {
-      conv.set(cid, { step: 'broadcast_text', target: 'driver' })
-      edit(cid, mid, '📢 *Рассылка водителям*\n\nВведите текст:\n\n/cancel — отмена', BACK); return
+
+    // ── ФИНАНСЫ ────────────────────────────────────────────
+    if (data === 'menu_finance') {
+      edit(cid, mid, '💰 *Финансы*',
+        KB(
+          [{ text: '📊 Выручка сегодня', callback_data: 'finance_today' }],
+          [{ text: '📅 Выручка 7 дней', callback_data: 'finance_week' }, { text: '🗓 30 дней', callback_data: 'finance_month' }],
+          [{ text: '🏆 Топ клиентов', callback_data: 'finance_top_clients' }],
+          [{ text: '📋 Биллинг водителей', callback_data: 'finance_billing' }],
+          [{ text: '◀️ Меню', callback_data: 'main' }]
+        )
+      ); return
     }
+    if (data === 'finance_today') {
+      const r = await db(`
+        SELECT
+          COUNT(*) FILTER(WHERE status='completed') AS trips,
+          COALESCE(SUM(price) FILTER(WHERE status='completed'), 0) AS revenue,
+          COALESCE(SUM(price*0.1) FILTER(WHERE status='completed'), 0) AS commission,
+          COUNT(*) FILTER(WHERE is_free=true AND status='completed') AS free_trips,
+          COUNT(*) FILTER(WHERE is_intercity=true AND status='completed') AS intercity
+        FROM orders WHERE created_at::date=CURRENT_DATE
+      `)
+      const s = r.rows?.[0] || {}
+      edit(cid, mid,
+        `💰 *Финансы сегодня:*\n\n` +
+        `🚖 Поездок: *${s.trips}* (межгород: ${s.intercity}, бесплатных: ${s.free_trips})\n` +
+        `💵 Выручка: *${Number(s.revenue).toLocaleString()} тг*\n` +
+        `💼 Комиссия: *${Number(s.commission).toFixed(0)} тг*`,
+        KB([{ text: '◀️ Назад', callback_data: 'menu_finance' }])
+      ); return
+    }
+    if (data === 'finance_week') {
+      const s = await q.getPeriodStats(7)
+      edit(cid, mid,
+        `📅 *Финансы за 7 дней:*\n\n💵 Выручка: *${Number(s.revenue||0).toLocaleString()} тг*\n` +
+        `💼 Комиссия: *${Number(s.commission||0).toLocaleString()} тг*\n🚖 Поездок: *${s.completed}*`,
+        KB([{ text: '◀️ Назад', callback_data: 'menu_finance' }])
+      ); return
+    }
+    if (data === 'finance_month') {
+      const s = await q.getPeriodStats(30)
+      edit(cid, mid,
+        `🗓 *Финансы за 30 дней:*\n\n💵 Выручка: *${Number(s.revenue||0).toLocaleString()} тг*\n` +
+        `💼 Комиссия: *${Number(s.commission||0).toLocaleString()} тг*\n🚖 Поездок: *${s.completed}*`,
+        KB([{ text: '◀️ Назад', callback_data: 'menu_finance' }])
+      ); return
+    }
+    if (data === 'finance_top_clients') {
+      const r = await db(`
+        SELECT u.name, u.phone,
+          COUNT(*) AS trips,
+          COALESCE(SUM(o.price), 0) AS spent
+        FROM orders o
+        JOIN users u ON o.client_id=u.id
+        WHERE o.status='completed' AND o.created_at >= NOW() - INTERVAL '30 days'
+        GROUP BY u.id, u.name, u.phone
+        ORDER BY spent DESC LIMIT 10
+      `)
+      const lines = (r.rows||[]).map((c,i) =>
+        `*${i+1}.* ${c.name||'?'} (${c.phone}) — ${c.trips} поезд. | ${Number(c.spent).toLocaleString()} тг`
+      ).join('\n')
+      edit(cid, mid, `🏆 *Топ клиентов (30 дней):*\n\n${lines||'Нет данных'}`, KB([{ text: '◀️ Назад', callback_data: 'menu_finance' }])); return
+    }
+    if (data === 'finance_billing') {
+      const r = await db(`
+        SELECT b.amount, b.balance_after, b.note, b.created_at, d.full_name
+        FROM billing b
+        JOIN drivers d ON b.driver_id=d.id
+        ORDER BY b.created_at DESC LIMIT 15
+      `)
+      const lines = (r.rows||[]).map(b =>
+        `💳 *${b.full_name}* +${b.amount} (итого: ${b.balance_after})\n   ${b.note||''} · ${new Date(b.created_at).toLocaleDateString('ru-RU')}`
+      ).join('\n')
+      edit(cid, mid, `📋 *Биллинг водителей:*\n\n${lines||'Нет записей'}`, KB([{ text: '◀️ Назад', callback_data: 'menu_finance' }])); return
+    }
+
+    // ── РАССЫЛКА ───────────────────────────────────────────
+    if (data === 'menu_broadcast') {
+      edit(cid, mid, '📢 *Рассылка*',
+        KB(
+          [{ text: '👤 Клиентам', callback_data: 'broadcast_clients' }, { text: '🚗 Водителям', callback_data: 'broadcast_drivers' }],
+          [{ text: '◀️ Меню', callback_data: 'main' }]
+        )
+      ); return
+    }
+    if (data === 'broadcast_clients') { conv.set(cid, { step: 'broadcast_text', target: 'client' }); edit(cid, mid, '📢 *Рассылка клиентам*\n\nВведите текст:\n\n/cancel', BACK); return }
+    if (data === 'broadcast_drivers') { conv.set(cid, { step: 'broadcast_text', target: 'driver' }); edit(cid, mid, '📢 *Рассылка водителям*\n\nВведите текст:\n\n/cancel', BACK); return }
     if (data === 'broadcast_confirm_yes') {
       const st = conv.get(cid); conv.delete(cid)
       if (!st?.message || !st?.target) { edit(cid, mid, '❌ Ошибка', BACK); return }
@@ -251,20 +396,17 @@ bot.on('callback_query', async (cb) => {
       const n = await notify.broadcast(st.target, st.message)
       send(cid, `✅ Отправлено *${n}* ${st.target==='client'?'клиентам':'водителям'}.`, MAIN); return
     }
-    if (data === 'broadcast_confirm_no') {
-      conv.delete(cid)
-      edit(cid, mid, '❌ *Рассылка отменена*', MAIN); return
-    }
+    if (data === 'broadcast_confirm_no') { conv.delete(cid); edit(cid, mid, '❌ *Рассылка отменена*', MAIN); return }
 
-    // ── чёрный список ──────────────────────────────────────
+    // ── ЧЁРНЫЙ СПИСОК ──────────────────────────────────────
     if (data === 'blacklist') {
       const blocked = await q.getBlockedUsers()
-      const BL_KB = { reply_markup: { inline_keyboard: [
-        [{ text: '🚫 Заблокировать клиента', callback_data: 'block_start' }],
-        [{ text: '✅ Разблокировать', callback_data: 'unblock_start' },
-         { text: '💸 Снять долг',     callback_data: 'debt_start' }],
-        [{ text: '◀️ Меню', callback_data: 'main' }],
-      ]}}
+      const BL_KB = KB(
+        [{ text: '🚫 Заблокировать', callback_data: 'block_start' }, { text: '✅ Разблокировать', callback_data: 'unblock_start' }],
+        [{ text: '⏱ Врем. блок', callback_data: 'tempblock_start' }, { text: '💸 Снять долг', callback_data: 'debt_start' }],
+        [{ text: '💸 Добавить долг', callback_data: 'adddebt_start' }],
+        [{ text: '◀️ Меню', callback_data: 'main' }]
+      )
       if (!blocked.length) { edit(cid, mid, '✅ *Чёрный список пуст*', BL_KB); return }
       const lines = blocked.map(u => {
         const until = u.blacklisted_until ? ` до ${new Date(u.blacklisted_until).toLocaleDateString('ru-RU')}` : ' (навсегда)'
@@ -272,140 +414,139 @@ bot.on('callback_query', async (cb) => {
       }).join('\n')
       edit(cid, mid, `🚫 *Чёрный список (${blocked.length}):*\n\n${lines}`, BL_KB); return
     }
-    if (data === 'block_start') {
-      conv.set(cid, { step: 'block_user' })
-      send(cid, '🚫 Введите номер клиента для блокировки:\n\n/cancel — отмена', BACK); return
-    }
-    if (data === 'unblock_start') {
-      conv.set(cid, { step: 'unblock_user' })
-      send(cid, '✅ Введите номер для разблокировки:\n\n/cancel — отмена', BACK); return
-    }
-    if (data === 'debt_start') {
-      conv.set(cid, { step: 'clear_debt' })
-      send(cid, '💸 Введите номер для снятия долга:\n\n/cancel — отмена', BACK); return
-    }
+    if (data === 'block_start')     { conv.set(cid, { step: 'block_user' });     send(cid, '🚫 Номер клиента для блокировки:\n\n/cancel', BACK); return }
+    if (data === 'unblock_start')   { conv.set(cid, { step: 'unblock_user' });   send(cid, '✅ Номер для разблокировки:\n\n/cancel', BACK); return }
+    if (data === 'tempblock_start') { conv.set(cid, { step: 'tempblock_user' }); send(cid, '⏱ *Временная блокировка*\n\nФормат: `77001234567 24h` или `77001234567 3d`\n\n/cancel', BACK); return }
+    if (data === 'debt_start')      { conv.set(cid, { step: 'clear_debt' });     send(cid, '💸 Номер для снятия долга:\n\n/cancel', BACK); return }
+    if (data === 'adddebt_start')   { conv.set(cid, { step: 'add_debt' });       send(cid, '💸 *Добавить долг*\n\nФормат: `77001234567 500 причина`\n\n/cancel', BACK); return }
 
-    // ── найти клиента ──────────────────────────────────────
-    if (data === 'client_start') {
-      conv.set(cid, { step: 'client_lookup' })
-      edit(cid, mid, '🔍 *Найти клиента*\n\nВведите номер телефона:\n\n/cancel — отмена', BACK); return
-    }
-
-    // ── настройки ──────────────────────────────────────────
-    if (data === 'menu_settings') { edit(cid, mid, '⚙️ *Настройки*', SETTINGS_KB); return }
-    if (data === 'mode_queue') {
-      await q.setSetting('distribution_mode', 'queue')
-      edit(cid, mid, '✅ Режим: *Строгая очередь* установлен', SETTINGS_KB); return
-    }
-    if (data === 'mode_first') {
-      await q.setSetting('distribution_mode', 'first')
-      edit(cid, mid, '✅ Режим: *Кто первый принял* установлен', SETTINGS_KB); return
-    }
-    if (data === 'loyalty_info') {
-      const [enabled, every, bonus] = await Promise.all([
-        q.getSetting('loyalty_enabled'), q.getSetting('loyalty_every'), q.getSetting('loyalty_bonus'),
+    // ── НАСТРОЙКИ ──────────────────────────────────────────
+    if (data === 'menu_settings') {
+      const [mode, loyEn, loyEvery] = await Promise.all([
+        q.getSetting('distribution_mode'), q.getSetting('loyalty_enabled'), q.getSetting('loyalty_every'),
       ])
-      const LOY_KB = { reply_markup: { inline_keyboard: [
-        [{ text: '🔛 Включить', callback_data: 'loyalty_on' },
-         { text: '🔴 Выключить', callback_data: 'loyalty_off' }],
-        [{ text: '🔢 Изменить интервал', callback_data: 'loyalty_every_start' }],
-        [{ text: '◀️ Назад', callback_data: 'menu_settings' }],
-      ]}}
       edit(cid, mid,
-        `🎁 *Программа лояльности*\n\n` +
-        `Статус: ${enabled!=='false'?'🟢 Включена':'🔴 Выключена'}\n` +
-        `Каждая *${every||10}-я* поездка бесплатна\n` +
-        `Бонус: *${bonus||1} поездка*`,
-        LOY_KB
+        `⚙️ *Настройки*\n\n` +
+        `Режим: *${mode==='first'?'⚡ Кто первый':'📋 Очередь'}*\n` +
+        `Лояльность: *${loyEn!=='false'?'🟢 Вкл':'🔴 Выкл'}* (каждая ${loyEvery||10}-я)\n`,
+        KB(
+          [{ text: '📋 Режим: Очередь', callback_data: 'mode_queue' }, { text: '⚡ Режим: Первый', callback_data: 'mode_first' }],
+          [{ text: '🎁 Лояльность', callback_data: 'loyalty_info' }],
+          [{ text: '◀️ Меню', callback_data: 'main' }]
+        )
       ); return
     }
-    if (data === 'loyalty_on') {
-      await q.setSetting('loyalty_enabled', 'true')
-      edit(cid, mid, '✅ Программа лояльности *включена*', SETTINGS_KB); return
+    if (data === 'mode_queue') { await q.setSetting('distribution_mode','queue'); edit(cid, mid, '✅ Режим: *Очередь*', KB([{ text: '◀️ Настройки', callback_data: 'menu_settings' }])); return }
+    if (data === 'mode_first') { await q.setSetting('distribution_mode','first'); edit(cid, mid, '✅ Режим: *Кто первый принял*', KB([{ text: '◀️ Настройки', callback_data: 'menu_settings' }])); return }
+    if (data === 'loyalty_info') {
+      const [en, every] = await Promise.all([q.getSetting('loyalty_enabled'), q.getSetting('loyalty_every')])
+      edit(cid, mid,
+        `🎁 *Лояльность:* ${en!=='false'?'🟢 Включена':'🔴 Выключена'}\nКаждая *${every||10}-я* поездка бесплатна`,
+        KB(
+          [{ text: '🔛 Включить', callback_data: 'loyalty_on' }, { text: '🔴 Выключить', callback_data: 'loyalty_off' }],
+          [{ text: '🔢 Изменить интервал', callback_data: 'loyalty_every_start' }],
+          [{ text: '◀️ Настройки', callback_data: 'menu_settings' }]
+        )
+      ); return
     }
-    if (data === 'loyalty_off') {
-      await q.setSetting('loyalty_enabled', 'false')
-      edit(cid, mid, '🔴 Программа лояльности *выключена*', SETTINGS_KB); return
+    if (data === 'loyalty_on')  { await q.setSetting('loyalty_enabled','true');  edit(cid, mid, '✅ Лояльность *включена*',  KB([{ text: '◀️ Настройки', callback_data: 'menu_settings' }])); return }
+    if (data === 'loyalty_off') { await q.setSetting('loyalty_enabled','false'); edit(cid, mid, '🔴 Лояльность *выключена*', KB([{ text: '◀️ Настройки', callback_data: 'menu_settings' }])); return }
+    if (data === 'loyalty_every_start') { conv.set(cid, { step: 'loyalty_every' }); send(cid, '🔢 Введите число 2–100:\n\n/cancel', BACK); return }
+
+    // ── БЫСТРЫЕ ДЕЙСТВИЯ ───────────────────────────────────
+    if (data === 'menu_quick') {
+      edit(cid, mid, '⚡ *Быстрые действия*',
+        KB(
+          [{ text: '⏹ Все водители offline', callback_data: 'driver_alloff' }],
+          [{ text: '🧹 Очистить зависшие заказы', callback_data: 'quick_cleanup' }],
+          [{ text: '📊 Тест-отчёт', callback_data: 'quick_testreport' }],
+          [{ text: '🔄 Перезапуск бота', callback_data: 'monitor_restart' }],
+          [{ text: '◀️ Меню', callback_data: 'main' }]
+        )
+      ); return
     }
-    if (data === 'loyalty_every_start') {
-      conv.set(cid, { step: 'loyalty_every' })
-      send(cid, '🔢 Введите число 2–100 (каждая N-я поездка бесплатна):\n\n/cancel — отмена', BACK); return
+    if (data === 'quick_cleanup') {
+      const r = await db(`UPDATE orders SET status='cancelled', cancelled_at=NOW() WHERE status='searching' AND created_at < NOW() - INTERVAL '15 minutes' RETURNING id`)
+      const n = r.rows?.length || 0
+      edit(cid, mid, `🧹 Очищено *${n}* зависших заказов.`, KB([{ text: '◀️ Назад', callback_data: 'menu_quick' }])); return
+    }
+    if (data === 'quick_testreport') {
+      const { getTestReport } = require('../src/modules/testLogger')
+      const report = getTestReport()
+      send(cid, `📊 *Отчёт тестирования:*\n\n${report||'Нет данных'}`, KB([{ text: '◀️ Назад', callback_data: 'menu_quick' }])); return
     }
 
-    // ── мониторинг ─────────────────────────────────────────
-    if (data === 'menu_monitor') { edit(cid, mid, '🤖 *Мониторинг бота*', MONITOR_KB); return }
+    // ── МОНИТОРИНГ ─────────────────────────────────────────
+    if (data === 'menu_monitor') {
+      edit(cid, mid, '🤖 *Мониторинг*',
+        KB(
+          [{ text: '🔍 Проверить', callback_data: 'monitor_run' }, { text: '📜 Логи', callback_data: 'monitor_logs' }],
+          [{ text: '🧠 Память агента', callback_data: 'monitor_memory' }, { text: '🔄 Перезапуск', callback_data: 'monitor_restart' }],
+          [{ text: '◀️ Меню', callback_data: 'main' }]
+        )
+      ); return
+    }
     if (data === 'monitor_run') {
-      edit(cid, mid, '🔍 Запускаю проверку...', MONITOR_KB)
+      edit(cid, mid, '🔍 Запускаю проверку...', BACK)
       const result = await monitorBot()
       const d = result.decision
-      const text = d?.alert
-        ? `⚠️ *Алерт:* ${d.alert}`
-        : `✅ *Всё нормально*\n${(d?.actions||[]).filter(Boolean).join('\n')}`
-      send(cid, text, MONITOR_KB); return
+      send(cid, d?.alert ? `⚠️ *Алерт:* ${d.alert}` : `✅ *Всё нормально*\n${(d?.actions||[]).filter(Boolean).join('\n')}`, KB([{ text: '◀️ Мониторинг', callback_data: 'menu_monitor' }])); return
     }
     if (data === 'monitor_logs') {
       const logs = await tools.getLogs(20)
-      const text = (logs.output||'Нет логов').slice(-2500)
-      send(cid, `\`\`\`\n${text}\n\`\`\``, MONITOR_KB); return
+      send(cid, `\`\`\`\n${(logs.output||'Нет').slice(-2500)}\n\`\`\``, KB([{ text: '◀️ Мониторинг', callback_data: 'menu_monitor' }])); return
     }
     if (data === 'monitor_memory') {
       const critical = await memory.getCritical()
-      if (!critical.length) { send(cid, '🧠 Критических записей нет', MONITOR_KB); return }
+      if (!critical.length) { send(cid, '🧠 Критических записей нет', KB([{ text: '◀️ Мониторинг', callback_data: 'menu_monitor' }])); return }
       const text = critical.map(m => `[${m.importance}] *${m.key}*: ${String(m.content).slice(0,120)}`).join('\n')
-      send(cid, `🧠 *Критическая память:*\n\n${text}`, MONITOR_KB); return
+      send(cid, `🧠 *Критическая память:*\n\n${text}`, KB([{ text: '◀️ Мониторинг', callback_data: 'menu_monitor' }])); return
     }
     if (data === 'monitor_restart') {
-      edit(cid, mid, '⚠️ *Точно перезапустить бота еОсакаровка?*', CONFIRM('restart_confirm', 'menu_monitor')); return
+      edit(cid, mid, '⚠️ *Перезапустить бота еОсакаровка?*', CONFIRM('restart_confirm', 'menu_monitor')); return
     }
     if (data === 'restart_confirm') {
       conv.delete(cid)
       edit(cid, mid, '🔄 Перезапускаю...', BACK)
       const r = await tools.ssh('pm2 restart osakarovka-bot')
-      send(cid, r.ok ? '✅ Бот перезапущен!' : `❌ ${r.output.slice(0,300)}`, MONITOR_KB); return
+      send(cid, r.ok ? '✅ Бот перезапущен!' : `❌ ${r.output.slice(0,300)}`, KB([{ text: '◀️ Мониторинг', callback_data: 'menu_monitor' }])); return
     }
 
-    // ── задачи для Claude Code ─────────────────────────────
+    // ── ЗАДАЧИ ─────────────────────────────────────────────
     if (data === 'menu_tasks') {
-      const r = await tools.queryDB("SELECT id, description, status, created_at FROM agent_tasks ORDER BY created_at DESC LIMIT 15")
+      const r = await db("SELECT id, description, status, created_at FROM agent_tasks ORDER BY created_at DESC LIMIT 15")
       const rows = r.rows || []
       const pending = rows.filter(t => t.status === 'pending')
       const done    = rows.filter(t => t.status !== 'pending').slice(0, 5)
-      const TASKS_KB = { reply_markup: { inline_keyboard: [
-        [{ text: '➕ Новая задача', callback_data: 'task_add' }],
-        [{ text: '🗑 Удалить задачу', callback_data: 'task_del_start' }],
-        [{ text: '◀️ Меню', callback_data: 'main' }],
-      ]}}
       let text = `📝 *Задачи для Claude Code*\n\n`
       if (pending.length) {
-        text += `*Ожидают выполнения (${pending.length}):*\n`
-        text += pending.map(t => `🔴 #${t.id}: ${t.description}`).join('\n')
-      } else {
-        text += `✅ Нет ожидающих задач`
-      }
-      if (done.length) {
-        text += `\n\n*Последние выполненные:*\n`
-        text += done.map(t => `${t.status==='completed'?'✅':'❌'} #${t.id}: ${t.description.slice(0,60)}`).join('\n')
-      }
-      text += `\n\n_Когда откроешь Claude Code — задачи появятся автоматически_`
-      edit(cid, mid, text, TASKS_KB); return
+        text += `*Ожидают (${pending.length}):*\n` + pending.map(t => `🔴 #${t.id}: ${t.description}`).join('\n')
+      } else { text += '✅ Нет ожидающих задач' }
+      if (done.length) text += `\n\n*Выполненные:*\n` + done.map(t => `${t.status==='completed'?'✅':'❌'} #${t.id}: ${t.description.slice(0,60)}`).join('\n')
+      text += `\n\n_Откроешь Claude Code — задачи появятся автоматически_`
+      edit(cid, mid, text,
+        KB(
+          [{ text: '➕ Новая задача', callback_data: 'task_add' }, { text: '🗑 Удалить', callback_data: 'task_del_start' }],
+          [{ text: '◀️ Меню', callback_data: 'main' }]
+        )
+      ); return
     }
     if (data === 'task_add') {
       conv.set(cid, { step: 'task_add' })
-      edit(cid, mid, '📝 *Новая задача*\n\nОпиши что нужно сделать Claude Code:\n\n/cancel — отмена', BACK); return
+      edit(cid, mid, '📝 *Новая задача*\n\nОпиши что нужно сделать Claude Code:\n\n/cancel', BACK); return
     }
     if (data === 'task_del_start') {
-      const r = await tools.queryDB("SELECT id, description FROM agent_tasks WHERE status='pending' ORDER BY created_at")
+      const r = await db("SELECT id, description FROM agent_tasks WHERE status='pending' ORDER BY created_at")
       const rows = r.rows || []
       if (!rows.length) { edit(cid, mid, '✅ Нет задач для удаления', BACK); return }
       conv.set(cid, { step: 'task_del', tasks: rows })
-      const list = rows.map(t => `#${t.id}: ${t.description.slice(0,60)}`).join('\n')
-      edit(cid, mid, `🗑 *Удалить задачу*\n\nВведите ID:\n\n${list}\n\n/cancel — отмена`, BACK); return
+      edit(cid, mid, `🗑 *Удалить задачу*\n\nВведите ID:\n\n${rows.map(t=>`#${t.id}: ${t.description.slice(0,60)}`).join('\n')}\n\n/cancel`, BACK); return
     }
 
-    // ── спросить агента ────────────────────────────────────
+    // ── СПРОСИТЬ АГЕНТА ────────────────────────────────────
     if (data === 'ask_start') {
       conv.set(cid, { step: 'ask_hermes' })
-      edit(cid, mid, '💬 *Задайте вопрос агенту Hermes:*\n\nСпросите что угодно о боте, статистике, водителях...\n\n/cancel — отмена', BACK); return
+      edit(cid, mid, '💬 *Задайте вопрос агенту Hermes:*\n\nСпросите что угодно о боте...\n\n/cancel', BACK); return
     }
 
   } catch(e) {
@@ -414,168 +555,147 @@ bot.on('callback_query', async (cb) => {
   }
 })
 
-// ── text messages (multi-step flows + free questions) ─────────
+// ── text messages ──────────────────────────────────────────────
 bot.on('message', async (msg) => {
   if (!isAdmin(msg.from.id)) return
   if (!msg.text || msg.text.startsWith('/')) return
 
   const cid  = msg.chat.id
-  const text = msg.text
-  const lo   = text.toLowerCase().trim()
+  const text = msg.text.trim()
+  const lo   = text.toLowerCase()
   const st   = conv.get(cid)
 
   if (!st) {
-    // нет активного флоу — отправляем в Hermes
     await send(cid, '🤔 Думаю...')
-    try {
-      const answer = await analyze(text)
-      send(cid, answer.slice(0, 3500), MAIN)
-    } catch(e) { send(cid, `❌ ${e.message}`, MAIN) }
+    try { send(cid, (await analyze(text)).slice(0, 3500), MAIN) }
+    catch(e) { send(cid, `❌ ${e.message}`, MAIN) }
     return
   }
 
   try {
-    // ── ask hermes ────────────────────────────────────────
     if (st.step === 'ask_hermes') {
       conv.delete(cid)
       await send(cid, '🤔 Думаю...')
-      const answer = await analyze(text)
-      send(cid, answer.slice(0, 3500), MAIN); return
+      send(cid, (await analyze(text)).slice(0, 3500), MAIN); return
     }
 
-    // ── найти клиента ─────────────────────────────────────
-    if (st.step === 'client_lookup') {
-      const target = text.replace(/\D/g, '')
-      if (!target) { send(cid, '❌ Введите номер телефона:'); return }
+    // ── заказы ────────────────────────────────────────────
+    if (st.step === 'order_find') {
+      const id = parseInt(text.replace(/\D/g,''))
+      if (!id) { send(cid, '❌ Введите числовой ID:'); return }
       conv.delete(cid)
-      const [c, u] = await Promise.all([q.getClientStats(target), q.getUser(target)])
-      if (!c) { send(cid, `❌ Клиент ${target} не найден.`, BACK); return }
-      const lastTrip = c.last_trip ? new Date(c.last_trip).toLocaleDateString('ru-RU') : 'нет'
-      let status = u?.is_blacklisted ? '🚫 Заблокирован' : '✅ Активен'
-      const debt = u?.debt_tg > 0 ? `\n💸 Долг: *${u.debt_tg} тг*` : ''
+      const o = await q.getOrder(id)
+      if (!o) { send(cid, `❌ Заказ #${id} не найден.`, BACK); return }
       send(cid,
-        `👤 *${c.name||'Без имени'}*\n📱 ${c.phone}\n` +
-        `🚖 Поездок: *${c.trip_count}* (завершено: ${c.completed})\n` +
-        `💰 Потрачено: *${Number(c.spent||0).toLocaleString()} тг*\n` +
-        `📅 Последняя: *${lastTrip}*${debt}\n${status}`,
+        `🚖 *Заказ #${o.id}*\n\n` +
+        `📍 ${o.destination}${o.pickup_address?`\n🏠 Откуда: ${o.pickup_address}`:''}\n` +
+        `💰 Цена: *${o.price} тг*${o.is_free?' 🎁 бесплатно':''}\n` +
+        `${STATUS_ICON[o.status]||'⬜'} Статус: *${o.status}*\n\n` +
+        `👤 Клиент: *${o.client_name}* (${o.client_phone})\n` +
+        `${o.driver_name?`🚗 Водитель: *${o.driver_name}* (${o.driver_phone})\n   ${o.car_make} · ${o.car_plate}\n`:''}\n` +
+        `🕐 Создан: ${new Date(o.created_at).toLocaleString('ru-RU')}`,
+        KB([{ text: '◀️ Заказы', callback_data: 'menu_orders' }])
+      ); return
+    }
+    if (st.step === 'order_cancel') {
+      const id = parseInt(text.replace(/\D/g,''))
+      if (!id) { send(cid, '❌ Введите числовой ID:'); return }
+      const o = await q.getOrder(id)
+      if (!o || ['completed','cancelled'].includes(o.status)) { send(cid, `❌ Заказ #${id} не найден или уже завершён.`, BACK); return }
+      conv.set(cid, { ...st, order_id: id })
+      send(cid, `❌ Отменить *#${id}* — ${o.destination} (${o.status})?`, CONFIRM('order_cancel_confirm', 'menu_orders')); return
+    }
+
+    // ── водители ──────────────────────────────────────────
+    if (st.step === 'driver_profile') {
+      const phone = text.replace(/\D/g,'')
+      if (!phone) { send(cid, '❌ Введите номер:'); return }
+      conv.delete(cid)
+      const d = await q.getDriver(phone)
+      if (!d) { send(cid, `❌ Водитель ${phone} не найден.`, BACK); return }
+      const r = await db(`SELECT COUNT(*) AS trips, COALESCE(SUM(price),0) AS earned FROM orders WHERE driver_id=$1 AND status='completed'`, [d.id])
+      const s = r.rows?.[0] || {}
+      send(cid,
+        `🚗 *${d.full_name}*\n📱 ${phone}\n` +
+        `${d.car_make} ${d.car_plate} (${d.car_color})\n\n` +
+        `${d.status==='online'?'🟢 Онлайн':d.status==='busy'?'🟡 В поездке':'⚫ Офлайн'}\n` +
+        `⭐ Рейтинг: *${Number(d.rating||5).toFixed(1)}*\n` +
+        `💰 Баланс: *${d.order_balance}*\n` +
+        `🚖 Всего поездок: *${s.trips}*\n` +
+        `💵 Заработано: *${Number(s.earned).toLocaleString()} тг*`,
         BACK
       ); return
     }
-
-    // ── баланс водителя ───────────────────────────────────
+    if (st.step === 'driver_history') {
+      const phone = text.replace(/\D/g,'')
+      if (!phone) { send(cid, '❌ Введите номер:'); return }
+      conv.delete(cid)
+      const r = await db(`
+        SELECT o.id, o.destination, o.price, o.status, o.created_at
+        FROM orders o
+        JOIN drivers d ON o.driver_id=d.id
+        JOIN users u ON d.user_id=u.id
+        WHERE u.phone=$1
+        ORDER BY o.created_at DESC LIMIT 15
+      `, [phone])
+      const rows = r.rows || []
+      if (!rows.length) { send(cid, `❌ Нет поездок для ${phone}`, BACK); return }
+      const lines = rows.map(o => `${STATUS_ICON[o.status]||'⬜'} *${o.destination}* — ${o.price} тг · ${new Date(o.created_at).toLocaleDateString('ru-RU')}`).join('\n')
+      send(cid, `📜 *Поездки водителя ${phone}:*\n\n${lines}`, BACK); return
+    }
+    if (st.step === 'driver_forceoff') {
+      const phone = text.replace(/\D/g,'')
+      if (!phone) { send(cid, '❌ Введите номер:'); return }
+      conv.delete(cid)
+      await db(`UPDATE drivers SET status='offline', queue_position=NULL WHERE user_id=(SELECT id FROM users WHERE phone=$1)`, [phone])
+      send(cid, `⏹ Водитель *${phone}* переведён offline.`, KB([{ text: '◀️ Водители', callback_data: 'menu_drivers' }])); return
+    }
     if (st.step === 'driver_balance') {
-      const parts  = text.trim().split(/\s+/)
+      const parts  = text.split(/\s+/)
       const amount = parseInt((parts[0]||'').replace('+',''))
       const target = (parts[1]||'').replace(/\D/g,'')
       if (isNaN(amount)||amount<=0||!target) { send(cid, '❌ Формат: `+50 77001234567`'); return }
       if (amount > 10000) { send(cid, '❌ Максимум 10000 за раз.'); return }
       conv.delete(cid)
       const result = await q.addDriverBalance(target, amount)
-      if (!result) { send(cid, `❌ Водитель ${target} не найден.`, DRIVERS_KB); return }
+      if (!result) { send(cid, `❌ Водитель ${target} не найден.`); return }
       await q.addBillingRecord(result.id, amount, result.order_balance, 'Пополнение', 'tg-admin')
-      send(cid, `✅ *${target}* — пополнено *+${amount}*. Итого: *${result.order_balance}*`, DRIVERS_KB); return
+      send(cid, `✅ *${target}* +${amount} → итого: *${result.order_balance}*`, KB([{ text: '◀️ Водители', callback_data: 'menu_drivers' }])); return
+    }
+    if (st.step === 'driver_block')   { const t=text.replace(/\D/g,''); if(!t){send(cid,'❌ Введите номер:');return} conv.delete(cid); await q.blacklistDriver(t,true);  send(cid,`🚫 Водитель *${t}* заблокирован.`, KB([{text:'◀️ Водители',callback_data:'menu_drivers'}])); return }
+    if (st.step === 'driver_unblock') { const t=text.replace(/\D/g,''); if(!t){send(cid,'❌ Введите номер:');return} conv.delete(cid); await q.blacklistDriver(t,false); send(cid,`✅ Водитель *${t}* разблокирован.`, KB([{text:'◀️ Водители',callback_data:'menu_drivers'}])); return }
+    if (st.step === 'driver_rating')  { const t=text.replace(/\D/g,''); if(!t){send(cid,'❌ Введите номер:');return} conv.delete(cid); await q.resetDriverRating(t); send(cid,`⭐ Рейтинг *${t}* сброшен до 5.0`, KB([{text:'◀️ Водители',callback_data:'menu_drivers'}])); return }
+
+    // ── клиент ────────────────────────────────────────────
+    if (st.step === 'client_lookup') {
+      const phone = text.replace(/\D/g,'')
+      if (!phone) { send(cid, '❌ Введите номер:'); return }
+      conv.delete(cid)
+      const [c, u] = await Promise.all([q.getClientStats(phone), q.getUser(phone)])
+      if (!c) { send(cid, `❌ Клиент ${phone} не найден.`, BACK); return }
+      const lastTrip = c.last_trip ? new Date(c.last_trip).toLocaleDateString('ru-RU') : 'нет'
+      let status = u?.is_blacklisted ? '🚫 Заблокирован' : '✅ Активен'
+      if (u?.blacklisted_until && new Date(u.blacklisted_until) > new Date()) {
+        status = `⏱ Врем. блок до ${new Date(u.blacklisted_until).toLocaleDateString('ru-RU')}`
+      }
+      const debtLine = u?.debt_tg > 0 ? `\n💸 Долг: *${u.debt_tg} тг*${u.debt_reason?' ('+u.debt_reason+')':''}` : ''
+      const CLIENT_KB = KB(
+        [{ text: '📜 История заказов', callback_data: `client_orders_${phone}` }],
+        [{ text: '⏱ Врем. блок', callback_data: `client_tempblock_${phone}` }, { text: '💸 Добавить долг', callback_data: `client_adddebt_${phone}` }],
+        [{ text: '◀️ Меню', callback_data: 'main' }]
+      )
+      send(cid,
+        `👤 *${c.name||'Без имени'}*\n📱 ${c.phone}\n` +
+        `🚖 Поездок: *${c.trip_count}* (завершено: ${c.completed})\n` +
+        `💰 Потрачено: *${Number(c.spent||0).toLocaleString()} тг*\n` +
+        `📅 Последняя: *${lastTrip}*${debtLine}\n${status}`,
+        CLIENT_KB
+      ); return
     }
 
-    // ── блок/разблок водителя ─────────────────────────────
-    if (st.step === 'driver_block') {
-      const t = text.replace(/\D/g,'')
-      if (!t) { send(cid, '❌ Введите номер:'); return }
-      conv.delete(cid)
-      await q.blacklistDriver(t, true)
-      send(cid, `🚫 Водитель *${t}* заблокирован.`, DRIVERS_KB); return
-    }
-    if (st.step === 'driver_unblock') {
-      const t = text.replace(/\D/g,'')
-      if (!t) { send(cid, '❌ Введите номер:'); return }
-      conv.delete(cid)
-      await q.blacklistDriver(t, false)
-      send(cid, `✅ Водитель *${t}* разблокирован.`, DRIVERS_KB); return
-    }
-    if (st.step === 'driver_rating') {
-      const t = text.replace(/\D/g,'')
-      if (!t) { send(cid, '❌ Введите номер:'); return }
-      conv.delete(cid)
-      await q.resetDriverRating(t)
-      send(cid, `✅ Рейтинг *${t}* сброшен до ⭐5.0`, DRIVERS_KB); return
-    }
-
-    // ── добавление тарифа 4 шага ──────────────────────────
-    if (st.step === 'tariff_add_1') {
-      if (!text.trim()) { send(cid, '❌ Введите название:'); return }
-      conv.set(cid, { step: 'tariff_add_2', data: { name: text.trim().slice(0,100) } })
-      send(cid, `✅ Название: *${text.trim()}*\n\n*Шаг 2/4:* Цена днём (тг):`); return
-    }
-    if (st.step === 'tariff_add_2') {
-      const dp = parseInt(text)
-      if (isNaN(dp)||dp<=0||dp>99999) { send(cid, '❌ Введите число 1–99999:'); return }
-      conv.set(cid, { step: 'tariff_add_3', data: { ...st.data, day_price: dp } })
-      send(cid, `✅ День: *${dp} тг*\n\n*Шаг 3/4:* Цена ночью (0 = как днём):`); return
-    }
-    if (st.step === 'tariff_add_3') {
-      const np = parseInt(text)||0
-      conv.set(cid, { step: 'tariff_add_4', data: { ...st.data, night_price: np>0?np:null } })
-      send(cid, `✅ Ночь: *${np>0?np+' тг':'как днём'}*\n\n*Шаг 4/4:* Ключевые слова через запятую:`); return
-    }
-    if (st.step === 'tariff_add_4') {
-      const kw = text.split(',').map(k=>k.trim().toLowerCase().slice(0,50)).filter(Boolean).slice(0,20)
-      if (!kw.length) { send(cid, '❌ Введите хотя бы одно слово:'); return }
-      conv.delete(cid)
-      const tariff = await q.createTariff({ name: st.data.name, keywords: kw, day_price: st.data.day_price, night_price: st.data.night_price })
-      send(cid, `✅ *Тариф добавлен!*\n📍 ${tariff.name}\n💰 ${tariff.day_price} тг${tariff.night_price?` / ночь ${tariff.night_price} тг`:''}\n🔑 ${kw.join(', ')}`, TARIFFS_KB); return
-    }
-
-    // ── изменение тарифа ──────────────────────────────────
-    if (st.step === 'tariff_edit_pick') {
-      const n = parseInt(text)
-      if (isNaN(n)||n<1||n>st.tariffs.length) { send(cid, `❌ Номер 1–${st.tariffs.length}:`); return }
-      conv.set(cid, { step: 'tariff_edit_field', tariff_id: st.tariffs[n-1].id, name: st.tariffs[n-1].name })
-      send(cid, `✏️ *${st.tariffs[n-1].name}*\n\nФормат:\n\`название Новое\`\n\`цена день 600\`\n\`цена ночь 800\`\n\`ключи слово1, слово2\`\n\n/cancel — отмена`); return
-    }
-    if (st.step === 'tariff_edit_field') {
-      let upd = {}
-      if (lo.startsWith('название '))       upd.name       = text.slice(9).trim().slice(0,100)
-      else if (lo.startsWith('цена день '))  upd.day_price  = parseInt(text.slice(10))
-      else if (lo.startsWith('цена ночь ')) upd.night_price= parseInt(text.slice(10))
-      else if (lo.startsWith('ключи '))      upd.keywords   = text.slice(6).split(',').map(k=>k.trim().toLowerCase().slice(0,50)).filter(Boolean)
-      else { send(cid, '❌ Неизвестная команда. Попробуй ещё:'); return }
-      if (upd.day_price!==undefined&&(isNaN(upd.day_price)||upd.day_price<=0)) { send(cid,'❌ Некорректное число:'); return }
-      conv.delete(cid)
-      await q.updateTariff(st.tariff_id, upd)
-      send(cid, '✅ *Тариф обновлён!*', TARIFFS_KB); return
-    }
-
-    // ── удаление тарифа ───────────────────────────────────
-    if (st.step === 'tariff_del_pick') {
-      const n = parseInt(text)
-      if (isNaN(n)||n<1||n>st.tariffs.length) { send(cid, `❌ Номер 1–${st.tariffs.length}:`); return }
-      const tariff = st.tariffs[n-1]
-      conv.set(cid, { step: 'tariff_del_confirm', tariff })
-      send(cid, `🗑 Удалить *${tariff.name}*?`, CONFIRM('tariff_del_confirm_yes', 'menu_tariffs')); return
-    }
-
-    // ── рассылка — текст ──────────────────────────────────
-    if (st.step === 'broadcast_text') {
-      if (!text.trim()) { send(cid, '❌ Введите текст:'); return }
-      conv.set(cid, { step: 'broadcast_confirm', target: st.target, message: text.trim() })
-      const who = st.target==='client'?'клиентам':'водителям'
-      send(cid, `📢 *Подтвердите рассылку ${who}:*\n\n${text.trim()}`, CONFIRM('broadcast_confirm_yes','broadcast_confirm_no')); return
-    }
-
-    // ── блок/разблок клиента ──────────────────────────────
-    if (st.step === 'block_user') {
-      const t = text.replace(/\D/g,'')
-      if (!t) { send(cid, '❌ Введите номер:'); return }
-      conv.delete(cid)
-      await q.blacklistUser(t, true, 'Заблокирован администратором')
-      send(cid, `🚫 Клиент *${t}* заблокирован.`, BACK); return
-    }
-    if (st.step === 'unblock_user') {
-      const t = text.replace(/\D/g,'')
-      if (!t) { send(cid, '❌ Введите номер:'); return }
-      conv.delete(cid)
-      await q.unblockUser(t)
-      send(cid, `✅ Клиент *${t}* разблокирован.`, BACK); return
-    }
+    // ── чёрный список ─────────────────────────────────────
+    if (st.step === 'block_user')   { const t=text.replace(/\D/g,''); if(!t){send(cid,'❌ Введите номер:');return} conv.delete(cid); await q.blacklistUser(t,true,'Заблокирован'); send(cid,`🚫 *${t}* заблокирован.`, BACK); return }
+    if (st.step === 'unblock_user') { const t=text.replace(/\D/g,''); if(!t){send(cid,'❌ Введите номер:');return} conv.delete(cid); await q.unblockUser(t); send(cid,`✅ *${t}* разблокирован.`, BACK); return }
     if (st.step === 'clear_debt') {
       const t = text.replace(/\D/g,'')
       if (!t) { send(cid, '❌ Введите номер:'); return }
@@ -586,35 +706,107 @@ bot.on('message', async (msg) => {
       await q.clearDebt(t)
       send(cid, `✅ Долг *${t}* (${u.debt_tg} тг) снят.`, BACK); return
     }
-
-    // ── новая задача ──────────────────────────────────────
-    if (st.step === 'task_add') {
-      if (!text.trim()) { send(cid, '❌ Введите описание задачи:'); return }
+    if (st.step === 'add_debt') {
+      const parts = text.split(/\s+/)
+      const phone = (parts[0]||'').replace(/\D/g,'')
+      const amount = parseInt(parts[1])
+      const reason = parts.slice(2).join(' ') || 'Нарушение'
+      if (!phone || isNaN(amount) || amount <= 0) { send(cid, '❌ Формат: `77001234567 500 причина`'); return }
       conv.delete(cid)
-      await tools.queryDB(
-        "INSERT INTO agent_tasks(description, status, created_at) VALUES($1, 'pending', NOW())",
-        [text.trim().slice(0, 500)]
-      )
-      send(cid, `✅ *Задача добавлена!*\n\n📝 ${text.trim()}\n\n_Откроешь Claude Code — задача появится автоматически_`, MAIN); return
+      await q.addDebt(phone, amount, reason)
+      send(cid, `💸 Долг *${amount} тг* добавлен клиенту ${phone}.`, BACK); return
+    }
+    if (st.step === 'tempblock_user') {
+      const parts = text.split(/\s+/)
+      const phone = (parts[0]||'').replace(/\D/g,'')
+      const durStr = parts[1] || '24h'
+      const match = durStr.match(/^(\d+)(h|d)$/)
+      if (!phone || !match) { send(cid, '❌ Формат: `77001234567 24h` или `77001234567 3d`'); return }
+      const hours = parseInt(match[1]) * (match[2]==='d'?24:1)
+      const until = new Date(Date.now() + hours*3600000)
+      conv.delete(cid)
+      await q.tempBlockUser(phone, until, 'Временная блокировка')
+      send(cid, `⏱ *${phone}* временно заблокирован до ${until.toLocaleString('ru-RU')}.`, BACK); return
     }
 
-    // ── удалить задачу ────────────────────────────────────
-    if (st.step === 'task_del') {
-      const id = parseInt(text.replace(/[^0-9]/g, ''))
-      const found = st.tasks?.find(t => t.id === id)
-      if (!found) { send(cid, `❌ ID #${id} не найден. Введите ID из списка:`); return }
-      conv.delete(cid)
-      await tools.queryDB("DELETE FROM agent_tasks WHERE id=$1", [id])
-      send(cid, `🗑 Задача *#${id}* удалена.`, MAIN); return
+    // ── рассылка ──────────────────────────────────────────
+    if (st.step === 'broadcast_text') {
+      if (!text.trim()) { send(cid, '❌ Введите текст:'); return }
+      conv.set(cid, { ...st, message: text.trim() })
+      const who = st.target==='client'?'клиентам':'водителям'
+      send(cid, `📢 *Подтвердите рассылку ${who}:*\n\n${text.trim()}`, CONFIRM('broadcast_confirm_yes','broadcast_confirm_no')); return
     }
 
-    // ── лояльность каждые N ───────────────────────────────
+    // ── тарифы ────────────────────────────────────────────
+    if (st.step === 'tariff_add_1') {
+      if (!text.trim()) { send(cid, '❌ Введите название:'); return }
+      conv.set(cid, { step: 'tariff_add_2', data: { name: text.trim().slice(0,100) } })
+      send(cid, `✅ *${text.trim()}*\n\n*Шаг 2/4:* Цена днём (тг):`); return
+    }
+    if (st.step === 'tariff_add_2') {
+      const dp = parseInt(text)
+      if (isNaN(dp)||dp<=0||dp>99999) { send(cid, '❌ Число 1–99999:'); return }
+      conv.set(cid, { step: 'tariff_add_3', data: { ...st.data, day_price: dp } })
+      send(cid, `✅ День: *${dp} тг*\n\n*Шаг 3/4:* Цена ночью (0 = как днём):`); return
+    }
+    if (st.step === 'tariff_add_3') {
+      const np = parseInt(text)||0
+      conv.set(cid, { step: 'tariff_add_4', data: { ...st.data, night_price: np>0?np:null } })
+      send(cid, `✅ Ночь: *${np>0?np+' тг':'как днём'}*\n\n*Шаг 4/4:* Ключевые слова через запятую:`); return
+    }
+    if (st.step === 'tariff_add_4') {
+      const kw = text.split(',').map(k=>k.trim().toLowerCase().slice(0,50)).filter(Boolean).slice(0,20)
+      if (!kw.length) { send(cid, '❌ Минимум одно слово:'); return }
+      conv.delete(cid)
+      const t = await q.createTariff({ name: st.data.name, keywords: kw, day_price: st.data.day_price, night_price: st.data.night_price })
+      send(cid, `✅ *Тариф добавлен!*\n📍 ${t.name} — ${t.day_price} тг\n🔑 ${kw.join(', ')}`, KB([{ text: '◀️ Тарифы', callback_data: 'menu_tariffs' }])); return
+    }
+    if (st.step === 'tariff_edit_pick') {
+      const n = parseInt(text)
+      if (isNaN(n)||n<1||n>st.tariffs.length) { send(cid, `❌ Номер 1–${st.tariffs.length}:`); return }
+      conv.set(cid, { step: 'tariff_edit_field', tariff_id: st.tariffs[n-1].id, name: st.tariffs[n-1].name })
+      send(cid, `✏️ *${st.tariffs[n-1].name}*\n\n\`название Новое\`\n\`цена день 600\`\n\`цена ночь 800\`\n\`ключи слово1, слово2\`\n\n/cancel`); return
+    }
+    if (st.step === 'tariff_edit_field') {
+      let upd = {}
+      if (lo.startsWith('название '))      upd.name       = text.slice(9).trim().slice(0,100)
+      else if (lo.startsWith('цена день ')) upd.day_price  = parseInt(text.slice(10))
+      else if (lo.startsWith('цена ночь '))upd.night_price = parseInt(text.slice(10))
+      else if (lo.startsWith('ключи '))     upd.keywords   = text.slice(6).split(',').map(k=>k.trim().toLowerCase()).filter(Boolean)
+      else { send(cid, '❌ Неизвестная команда:'); return }
+      conv.delete(cid)
+      await q.updateTariff(st.tariff_id, upd)
+      send(cid, '✅ *Тариф обновлён!*', KB([{ text: '◀️ Тарифы', callback_data: 'menu_tariffs' }])); return
+    }
+    if (st.step === 'tariff_del_pick') {
+      const n = parseInt(text)
+      if (isNaN(n)||n<1||n>st.tariffs.length) { send(cid, `❌ Номер 1–${st.tariffs.length}:`); return }
+      conv.set(cid, { step: 'tariff_del_confirm', tariff: st.tariffs[n-1] })
+      send(cid, `🗑 Удалить *${st.tariffs[n-1].name}*?`, CONFIRM('tariff_del_confirm_yes', 'menu_tariffs')); return
+    }
+
+    // ── настройки ─────────────────────────────────────────
     if (st.step === 'loyalty_every') {
       const n = parseInt(text)
-      if (isNaN(n)||n<2||n>100) { send(cid, '❌ Введите число 2–100:'); return }
+      if (isNaN(n)||n<2||n>100) { send(cid, '❌ Число 2–100:'); return }
       conv.delete(cid)
       await q.setSetting('loyalty_every', String(n))
-      send(cid, `✅ Каждая *${n}-я* поездка теперь бесплатная.`, SETTINGS_KB); return
+      send(cid, `✅ Каждая *${n}-я* поездка бесплатная.`, KB([{ text: '◀️ Настройки', callback_data: 'menu_settings' }])); return
+    }
+
+    // ── задачи ────────────────────────────────────────────
+    if (st.step === 'task_add') {
+      if (!text.trim()) { send(cid, '❌ Введите описание:'); return }
+      conv.delete(cid)
+      await db("INSERT INTO agent_tasks(description, status, created_at) VALUES($1,'pending',NOW())", [text.trim().slice(0,500)])
+      send(cid, `✅ *Задача добавлена:*\n📝 ${text.trim()}\n\n_Откроешь Claude Code — задача появится автоматически_`, MAIN); return
+    }
+    if (st.step === 'task_del') {
+      const id = parseInt(text.replace(/\D/g,''))
+      if (!st.tasks?.find(t=>t.id===id)) { send(cid, `❌ ID #${id} не найден:`); return }
+      conv.delete(cid)
+      await db("DELETE FROM agent_tasks WHERE id=$1", [id])
+      send(cid, `🗑 Задача #${id} удалена.`, MAIN); return
     }
 
   } catch(e) {
@@ -623,17 +815,67 @@ bot.on('message', async (msg) => {
   }
 })
 
-// ── tariff_del_confirm через callback ─────────────────────────
+// ── client_orders и client_tempblock через callback ────────────
 bot.on('callback_query', async (cb) => {
   if (!isAdmin(cb.from.id)) return
-  if (cb.data !== 'tariff_del_confirm_yes') return
-  bot.answerCallbackQuery(cb.id)
-  const cid = cb.message.chat.id
-  const st  = conv.get(cid)
-  conv.delete(cid)
-  if (!st?.tariff) return
-  await q.deleteTariff(st.tariff.id).catch(() => {})
-  send(cid, `🗑 Тариф *${st.tariff.name}* удалён.`, TARIFFS_KB)
+  const cid  = cb.message.chat.id
+  const data = cb.data
+
+  if (data.startsWith('client_orders_')) {
+    bot.answerCallbackQuery(cb.id)
+    const phone = data.replace('client_orders_', '')
+    try {
+      const r = await db(`
+        SELECT id, destination, price, status, created_at FROM orders
+        WHERE client_id=(SELECT id FROM users WHERE phone=$1)
+        ORDER BY created_at DESC LIMIT 15
+      `, [phone])
+      const rows = r.rows || []
+      if (!rows.length) { send(cid, `❌ Нет заказов для ${phone}`, BACK); return }
+      const lines = rows.map(o => `${STATUS_ICON[o.status]||'⬜'} *${o.destination}* — ${o.price} тг · ${new Date(o.created_at).toLocaleDateString('ru-RU')}`).join('\n')
+      send(cid, `📜 *История клиента ${phone}:*\n\n${lines}`, BACK)
+    } catch(e) { send(cid, `❌ ${e.message}`) }
+  }
+
+  if (data.startsWith('client_tempblock_') || data.startsWith('client_adddebt_')) {
+    bot.answerCallbackQuery(cb.id)
+    const phone = data.replace(/client_(tempblock|adddebt)_/, '')
+    const step  = data.startsWith('client_tempblock_') ? 'tempblock_user' : 'add_debt'
+    conv.set(cid, { step })
+    const hint = step === 'tempblock_user'
+      ? `⏱ Формат: \`${phone} 24h\` или \`${phone} 3d\`\n\n/cancel`
+      : `💸 Формат: \`${phone} 500 причина\`\n\n/cancel`
+    send(cid, hint, BACK)
+  }
 })
 
-console.log('🤖 Hermes Telegram Admin запущен')
+// ── ежедневный авто-отчёт ──────────────────────────────────────
+const scheduleDailyReport = () => {
+  if (!ADMIN_ID) return
+  const sendDailyReport = async () => {
+    try {
+      const [s, d] = await Promise.all([q.getTodayStats(), q.getAllDrivers()])
+      const on = d.filter(x => ['online','busy'].includes(x.status)).length
+      await bot.sendMessage(ADMIN_ID,
+        `📊 *Итоги дня ${new Date().toLocaleDateString('ru-RU')}*\n\n` +
+        `🚖 Поездок: *${s.completed}* (отменено: ${s.cancelled})\n` +
+        `💰 Выручка: *${Number(s.revenue||0).toLocaleString()} тг*\n` +
+        `💼 Комиссия: *${Number(s.commission||0).toFixed(0)} тг*\n` +
+        `👥 Водителей онлайн: *${on}/${d.length}*`,
+        { parse_mode: 'Markdown' }
+      ).catch(() => {})
+    } catch(_) {}
+  }
+  // Каждый день в 23:30
+  const now = new Date()
+  const target = new Date(now)
+  target.setHours(23, 30, 0, 0)
+  if (target <= now) target.setDate(target.getDate() + 1)
+  setTimeout(function tick() {
+    sendDailyReport()
+    setTimeout(tick, 24 * 60 * 60 * 1000)
+  }, target - now)
+}
+
+scheduleDailyReport()
+console.log('🤖 Hermes Telegram Admin v2 запущен')
