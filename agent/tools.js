@@ -48,7 +48,7 @@ const deployBot = async () => {
 // ─── БАЗА ДАННЫХ ─────────────────────────────────────────────
 const { db } = require('./memory');
 
-const queryDB = async (sql, params = []) => {
+const queryDB = async (sql, params = [], returnRows = true) => {
   try {
     const r = await db.query(sql, params);
     return { ok: true, rows: r.rows, count: r.rowCount };

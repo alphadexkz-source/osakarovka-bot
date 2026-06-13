@@ -3,7 +3,7 @@
 // xAI Grok — основной AI для чата клиентов и водителей (заменил Claude Haiku)
 // OpenAI-совместимый API, $25/мес кредитов с X Premium
 
-const MODEL = 'grok-3-mini'
+const MODEL = 'grok-3'
 
 const callClaude = async ({ system, messages, maxTokens = 250, temperature = 0.8 }) => {
   const apiKey = process.env.XAI_API_KEY

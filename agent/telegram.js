@@ -38,6 +38,7 @@ const MAIN = { reply_markup: { inline_keyboard: [
    { text: '⚙️ Настройки',       callback_data: 'menu_settings' }],
   [{ text: '🤖 Мониторинг',      callback_data: 'menu_monitor' },
    { text: '💬 Спросить агента', callback_data: 'ask_start' }],
+  [{ text: '📝 Задачи для Claude Code', callback_data: 'menu_tasks' }],
 ]}}
 
 const STATS_KB = { reply_markup: { inline_keyboard: [
@@ -363,6 +364,44 @@ bot.on('callback_query', async (cb) => {
       send(cid, r.ok ? '✅ Бот перезапущен!' : `❌ ${r.output.slice(0,300)}`, MONITOR_KB); return
     }
 
+    // ── задачи для Claude Code ─────────────────────────────
+    if (data === 'menu_tasks') {
+      const r = await tools.queryDB("SELECT id, description, status, created_at FROM agent_tasks ORDER BY created_at DESC LIMIT 15")
+      const rows = r.rows || []
+      const pending = rows.filter(t => t.status === 'pending')
+      const done    = rows.filter(t => t.status !== 'pending').slice(0, 5)
+      const TASKS_KB = { reply_markup: { inline_keyboard: [
+        [{ text: '➕ Новая задача', callback_data: 'task_add' }],
+        [{ text: '🗑 Удалить задачу', callback_data: 'task_del_start' }],
+        [{ text: '◀️ Меню', callback_data: 'main' }],
+      ]}}
+      let text = `📝 *Задачи для Claude Code*\n\n`
+      if (pending.length) {
+        text += `*Ожидают выполнения (${pending.length}):*\n`
+        text += pending.map(t => `🔴 #${t.id}: ${t.description}`).join('\n')
+      } else {
+        text += `✅ Нет ожидающих задач`
+      }
+      if (done.length) {
+        text += `\n\n*Последние выполненные:*\n`
+        text += done.map(t => `${t.status==='completed'?'✅':'❌'} #${t.id}: ${t.description.slice(0,60)}`).join('\n')
+      }
+      text += `\n\n_Когда откроешь Claude Code — задачи появятся автоматически_`
+      edit(cid, mid, text, TASKS_KB); return
+    }
+    if (data === 'task_add') {
+      conv.set(cid, { step: 'task_add' })
+      edit(cid, mid, '📝 *Новая задача*\n\nОпиши что нужно сделать Claude Code:\n\n/cancel — отмена', BACK); return
+    }
+    if (data === 'task_del_start') {
+      const r = await tools.queryDB("SELECT id, description FROM agent_tasks WHERE status='pending' ORDER BY created_at")
+      const rows = r.rows || []
+      if (!rows.length) { edit(cid, mid, '✅ Нет задач для удаления', BACK); return }
+      conv.set(cid, { step: 'task_del', tasks: rows })
+      const list = rows.map(t => `#${t.id}: ${t.description.slice(0,60)}`).join('\n')
+      edit(cid, mid, `🗑 *Удалить задачу*\n\nВведите ID:\n\n${list}\n\n/cancel — отмена`, BACK); return
+    }
+
     // ── спросить агента ────────────────────────────────────
     if (data === 'ask_start') {
       conv.set(cid, { step: 'ask_hermes' })
@@ -546,6 +585,27 @@ bot.on('message', async (msg) => {
       conv.delete(cid)
       await q.clearDebt(t)
       send(cid, `✅ Долг *${t}* (${u.debt_tg} тг) снят.`, BACK); return
+    }
+
+    // ── новая задача ──────────────────────────────────────
+    if (st.step === 'task_add') {
+      if (!text.trim()) { send(cid, '❌ Введите описание задачи:'); return }
+      conv.delete(cid)
+      await tools.queryDB(
+        "INSERT INTO agent_tasks(description, status, created_at) VALUES($1, 'pending', NOW())",
+        [text.trim().slice(0, 500)]
+      )
+      send(cid, `✅ *Задача добавлена!*\n\n📝 ${text.trim()}\n\n_Откроешь Claude Code — задача появится автоматически_`, MAIN); return
+    }
+
+    // ── удалить задачу ────────────────────────────────────
+    if (st.step === 'task_del') {
+      const id = parseInt(text.replace(/[^0-9]/g, ''))
+      const found = st.tasks?.find(t => t.id === id)
+      if (!found) { send(cid, `❌ ID #${id} не найден. Введите ID из списка:`); return }
+      conv.delete(cid)
+      await tools.queryDB("DELETE FROM agent_tasks WHERE id=$1", [id])
+      send(cid, `🗑 Задача *#${id}* удалена.`, MAIN); return
     }
 
     // ── лояльность каждые N ───────────────────────────────

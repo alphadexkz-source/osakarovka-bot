@@ -65,8 +65,18 @@
           },
           {
             "type": "command",
+            "command": "node \"%CLAUDE_PROJECT_DIR%\\.claude\\helpers\\check-tasks.cjs\"",
+            "timeout": 8000
+          },
+          {
+            "type": "command",
             "command": "cmd /c \"IF EXIST \"%CLAUDE_PROJECT_DIR%\\.claude\\helpers\\auto-memory-hook.mjs\" (node \"%CLAUDE_PROJECT_DIR%\\.claude\\helpers\\auto-memory-hook.mjs\" import) ELSE (node \"%USERPROFILE%\\.claude\\helpers\\auto-memory-hook.mjs\" import)\"",
             "timeout": 8000
+          },
+          {
+            "type": "command",
+            "command": "cmd /c \"IF EXIST \"%CLAUDE_PROJECT_DIR%\\start-ruflo-daemon.bat\" (start /MIN cmd /c \"\\\"%CLAUDE_PROJECT_DIR%\\start-ruflo-daemon.bat\\\" 1>> \\\"%CLAUDE_PROJECT_DIR%\\.claude-flow\\logs\\daemon.log\\\" 2>&1\")\"",
+            "timeout": 5000
           }
         ]
       }
