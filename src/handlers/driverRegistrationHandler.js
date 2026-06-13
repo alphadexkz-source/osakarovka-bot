@@ -1,5 +1,6 @@
-const wa = require('../whatsapp/greenApi')
-const q = require('../db/queries')
+const wa       = require('../whatsapp/greenApi')
+const q        = require('../db/queries')
+const tgNotify = require('../modules/telegramNotify')
 
 const handleRegistration = async (phone, msg, state) => {
   const { text } = msg
@@ -39,6 +40,7 @@ const handleRegistration = async (phone, msg, state) => {
       await q.clearSession(phone)
       const d = await q.getDriver(phone)
       if (!d) { await wa.sendText(phone, '✅ Регистрация завершена! Напишите *"на линию"* чтобы начать.'); break }
+      tgNotify.onDriverRegistered({ ...d, phone })
       await wa.sendText(phone,
         '🎉 *Добро пожаловать в еОсакаровка Сервис!*\n\n' +
         '👤 Водитель: *' + (d.full_name||'—') + '*\n' +

@@ -1,5 +1,6 @@
-const q      = require('../db/queries');
-const config = require('../config');
+const q        = require('../db/queries');
+const config   = require('../config');
+const tgNotify = require('./telegramNotify');
 
 // Выйти на линию
 const goOnline = async (phone) => {
@@ -13,6 +14,7 @@ const goOnline = async (phone) => {
   await q.moveDriverToEndOfQueue(phone);
   // Сбрасываем skip_next при выходе на линию
   await q.updateDriver(phone, { skip_next: false }).catch(() => {});
+  tgNotify.onDriverOnline(driver);
   return { success: true, driver };
 };
 

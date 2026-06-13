@@ -30,19 +30,22 @@ const db = (sql, params = []) => tools.queryDB(sql, params)
 
 // ── keyboards ──────────────────────────────────────────────────
 const MAIN = { reply_markup: { inline_keyboard: [
-  [{ text: '📊 Статистика',      callback_data: 'stats_today'   },
-   { text: '🚖 Заказы',          callback_data: 'menu_orders'   }],
-  [{ text: '👥 Водители',        callback_data: 'menu_drivers'  },
-   { text: '📋 Тарифы',          callback_data: 'menu_tariffs'  }],
-  [{ text: '🔍 Клиент',          callback_data: 'client_start'  },
-   { text: '💰 Финансы',         callback_data: 'menu_finance'  }],
-  [{ text: '📢 Рассылка',        callback_data: 'menu_broadcast'},
-   { text: '🚫 Чёрный список',   callback_data: 'blacklist'     }],
-  [{ text: '⚙️ Настройки',       callback_data: 'menu_settings' },
-   { text: '⚡ Быстро',          callback_data: 'menu_quick'    }],
-  [{ text: '🤖 Мониторинг',      callback_data: 'menu_monitor'  },
-   { text: '📝 Задачи',          callback_data: 'menu_tasks'    }],
-  [{ text: '💬 Спросить агента', callback_data: 'ask_start'     }],
+  [{ text: '📊 Статистика',      callback_data: 'stats_today'        },
+   { text: '🚖 Заказы',          callback_data: 'menu_orders'        }],
+  [{ text: '👥 Водители',        callback_data: 'menu_drivers'       },
+   { text: '📋 Тарифы',          callback_data: 'menu_tariffs'       }],
+  [{ text: '🔍 Клиент',          callback_data: 'client_start'       },
+   { text: '💰 Финансы',         callback_data: 'menu_finance'       }],
+  [{ text: '📢 Рассылка',        callback_data: 'menu_broadcast'     },
+   { text: '🚫 Ч/список + Долги',callback_data: 'blacklist'          }],
+  [{ text: '💸 Должники',        callback_data: 'debtors'            },
+   { text: '📊 Пик. часы',       callback_data: 'peak_hours'         }],
+  [{ text: '🚖 Ручной заказ',    callback_data: 'manual_order_start' },
+   { text: '⚙️ Настройки',       callback_data: 'menu_settings'      }],
+  [{ text: '⚡ Быстро',          callback_data: 'menu_quick'         },
+   { text: '🤖 Монит./Деплой',   callback_data: 'menu_monitor'       }],
+  [{ text: '📝 Задачи',          callback_data: 'menu_tasks'         },
+   { text: '💬 Спросить агента', callback_data: 'ask_start'          }],
 ]}}
 
 const BACK  = { reply_markup: { inline_keyboard: [[{ text: '◀️ Меню', callback_data: 'main' }]] }}
@@ -453,6 +456,42 @@ bot.on('callback_query', async (cb) => {
     if (data === 'loyalty_off') { await q.setSetting('loyalty_enabled','false'); edit(cid, mid, '🔴 Лояльность *выключена*', KB([{ text: '◀️ Настройки', callback_data: 'menu_settings' }])); return }
     if (data === 'loyalty_every_start') { conv.set(cid, { step: 'loyalty_every' }); send(cid, '🔢 Введите число 2–100:\n\n/cancel', BACK); return }
 
+    // ── ДОЛЖНИКИ ───────────────────────────────────────────
+    if (data === 'debtors') {
+      const r = await db(`SELECT phone, name, debt_tg, debt_reason FROM users WHERE debt_tg>0 ORDER BY debt_tg DESC`)
+      const rows = r.rows || []
+      if (!rows.length) { edit(cid, mid, '✅ *Должников нет*', KB([{ text: '◀️ Меню', callback_data: 'main' }])); return }
+      const total = rows.reduce((s, u) => s + Number(u.debt_tg), 0)
+      const lines = rows.map(u => `💸 *${u.phone}* — ${u.debt_tg} тг${u.name?` (${u.name})`:''}${u.debt_reason?`\n   _${u.debt_reason}_`:''}`).join('\n')
+      edit(cid, mid, `💸 *Должники (${rows.length}) — итого ${total} тг:*\n\n${lines}`, KB([{ text: '💸 Снять долг', callback_data: 'debt_start' }, { text: '◀️ Меню', callback_data: 'main' }])); return
+    }
+
+    // ── ПИКОВЫЕ ЧАСЫ ───────────────────────────────────────
+    if (data === 'peak_hours') {
+      const r = await db(`
+        SELECT EXTRACT(HOUR FROM created_at + INTERVAL '5 hours') AS hour,
+               COUNT(*) AS orders, COUNT(*) FILTER(WHERE status='completed') AS done
+        FROM orders WHERE created_at >= NOW() - INTERVAL '7 days'
+        GROUP BY 1 ORDER BY 1
+      `)
+      const rows = r.rows || []
+      if (!rows.length) { edit(cid, mid, '❌ Нет данных за 7 дней', BACK); return }
+      const maxOrders = Math.max(...rows.map(r => Number(r.orders)))
+      const BAR = ['▁','▂','▃','▄','▅','▆','▇','█']
+      const chart = rows.map(r => {
+        const h = String(r.hour).padStart(2,'0')
+        const bar = BAR[Math.round((Number(r.orders)/maxOrders)*7)]
+        return `${h}:00 ${bar} ${r.orders} (✅${r.done})`
+      }).join('\n')
+      edit(cid, mid, `📊 *Пиковые часы (7 дней, Алмата UTC+5):*\n\n\`\`\`\n${chart}\n\`\`\``, KB([{ text: '◀️ Меню', callback_data: 'main' }])); return
+    }
+
+    // ── РУЧНОЙ ЗАКАЗ ───────────────────────────────────────
+    if (data === 'manual_order_start') {
+      conv.set(cid, { step: 'manual_order_phone' })
+      edit(cid, mid, '🚖 *Ручной заказ*\n\nВведите телефон клиента:\n\n/cancel', BACK); return
+    }
+
     // ── БЫСТРЫЕ ДЕЙСТВИЯ ───────────────────────────────────
     if (data === 'menu_quick') {
       edit(cid, mid, '⚡ *Быстрые действия*',
@@ -478,10 +517,11 @@ bot.on('callback_query', async (cb) => {
 
     // ── МОНИТОРИНГ ─────────────────────────────────────────
     if (data === 'menu_monitor') {
-      edit(cid, mid, '🤖 *Мониторинг*',
+      edit(cid, mid, '🤖 *Мониторинг и деплой*',
         KB(
-          [{ text: '🔍 Проверить', callback_data: 'monitor_run' }, { text: '📜 Логи', callback_data: 'monitor_logs' }],
-          [{ text: '🧠 Память агента', callback_data: 'monitor_memory' }, { text: '🔄 Перезапуск', callback_data: 'monitor_restart' }],
+          [{ text: '🔍 Проверить бота', callback_data: 'monitor_run' }, { text: '📜 Логи', callback_data: 'monitor_logs' }],
+          [{ text: '💻 Сервер CPU/RAM', callback_data: 'monitor_server' }, { text: '🧠 Память агента', callback_data: 'monitor_memory' }],
+          [{ text: '🚀 Деплой (git pull)', callback_data: 'monitor_deploy' }, { text: '🔄 Перезапуск', callback_data: 'monitor_restart' }],
           [{ text: '◀️ Меню', callback_data: 'main' }]
         )
       ); return
@@ -491,6 +531,34 @@ bot.on('callback_query', async (cb) => {
       const result = await monitorBot()
       const d = result.decision
       send(cid, d?.alert ? `⚠️ *Алерт:* ${d.alert}` : `✅ *Всё нормально*\n${(d?.actions||[]).filter(Boolean).join('\n')}`, KB([{ text: '◀️ Мониторинг', callback_data: 'menu_monitor' }])); return
+    }
+    if (data === 'monitor_server') {
+      const r = await tools.ssh("echo '=CPU='; top -bn1 | grep 'Cpu(s)' | awk '{print $2+$4\"%\"}'; echo '=RAM='; free -m | awk 'NR==2{printf \"%s/%sMB (%.0f%%)\", $3,$2,$3*100/$2}'; echo; echo '=DISK='; df -h / | awk 'NR==2{print $3\"/\"$2\" (\"$5\")\"}'")
+      const lines = (r.output||'').split('\n').reduce((acc, line) => {
+        if (line.startsWith('=') && line.endsWith('=')) { acc.current = line.replace(/=/g,'').trim(); return acc }
+        if (line.trim()) acc[acc.current] = line.trim()
+        return acc
+      }, { current: '' })
+      edit(cid, mid,
+        `💻 *Сервер:*\n\n` +
+        `🔥 CPU: *${lines['CPU']||'?'}*\n` +
+        `🧠 RAM: *${lines['RAM']||'?'}*\n` +
+        `💾 Диск: *${lines['DISK']||'?'}*`,
+        KB([{ text: '🔄 Обновить', callback_data: 'monitor_server' }, { text: '◀️ Мониторинг', callback_data: 'menu_monitor' }])
+      ); return
+    }
+    if (data === 'monitor_deploy') {
+      edit(cid, mid, '🚀 *Деплой: git pull + restart?*', CONFIRM('deploy_confirm', 'menu_monitor')); return
+    }
+    if (data === 'deploy_confirm') {
+      conv.delete(cid)
+      edit(cid, mid, '🚀 Деплой запущен...', BACK)
+      const r = await tools.ssh('cd ~/osakarovka-bot && git pull && npm install --production --silent && pm2 restart ecosystem.config.js')
+      send(cid, r.ok
+        ? `✅ *Деплой успешен!*\n\`\`\`\n${r.output.slice(-600)}\n\`\`\``
+        : `❌ Ошибка:\n\`\`\`\n${r.output.slice(-600)}\n\`\`\``,
+        KB([{ text: '◀️ Мониторинг', callback_data: 'menu_monitor' }])
+      ); return
     }
     if (data === 'monitor_logs') {
       const logs = await tools.getLogs(20)
@@ -547,6 +615,36 @@ bot.on('callback_query', async (cb) => {
     if (data === 'ask_start') {
       conv.set(cid, { step: 'ask_hermes' })
       edit(cid, mid, '💬 *Задайте вопрос агенту Hermes:*\n\nСпросите что угодно о боте...\n\n/cancel', BACK); return
+    }
+
+    // ── РУЧНОЙ ЗАКАЗ — финальный шаг ──────────────────────
+    if (data === 'manual_order_exec') {
+      const st = conv.get(cid); conv.delete(cid)
+      if (!st?.phone || !st?.dest || !st?.tariff) { edit(cid, mid, '❌ Ошибка состояния', MAIN); return }
+      try {
+        const orderEngine = require('../src/modules/orderEngine')
+        const priceInfo = { price: st.price, tariff: st.tariff }
+        const order = await orderEngine.create(st.phone, st.dest, priceInfo)
+        if (!order) { send(cid, `❌ Не удалось создать — у клиента уже есть активный заказ?`, MAIN); return }
+        send(cid, `✅ *Заказ #${order.id} создан!*\n📍 ${st.dest}\n💰 ${st.price} тг\n👤 ${st.name||st.phone}`, MAIN)
+      } catch(e2) { send(cid, `❌ ${e2.message}`, MAIN) }
+      return
+    }
+
+    // ── БЫСТРЫЙ ПРОФИЛЬ/БЛОК ВОДИТЕЛЯ (из push-уведомлений) ──
+    if (data.startsWith('driver_profile_quick_')) {
+      const phone = data.replace('driver_profile_quick_', '')
+      const d = await q.getDriver(phone)
+      if (!d) { edit(cid, mid, `❌ Водитель ${phone} не найден.`, MAIN); return }
+      send(cid,
+        `🚗 *${d.full_name}*\n📱 ${phone}\n${d.car_make||''} ${d.car_plate||''} ${d.car_color||''}\n⭐ ${Number(d.rating||5).toFixed(1)} | 💰 ${d.order_balance}`,
+        KB([{ text: '🚫 Заблокировать', callback_data: `driver_block_quick_${phone}` }, { text: '◀️ Меню', callback_data: 'main' }])
+      ); return
+    }
+    if (data.startsWith('driver_block_quick_')) {
+      const phone = data.replace('driver_block_quick_', '')
+      await q.blacklistDriver(phone, true)
+      edit(cid, mid, `🚫 Водитель *${phone}* заблокирован.`, KB([{ text: '◀️ Меню', callback_data: 'main' }])); return
     }
 
   } catch(e) {
@@ -727,6 +825,40 @@ bot.on('message', async (msg) => {
       conv.delete(cid)
       await q.tempBlockUser(phone, until, 'Временная блокировка')
       send(cid, `⏱ *${phone}* временно заблокирован до ${until.toLocaleString('ru-RU')}.`, BACK); return
+    }
+
+    // ── ручной заказ ──────────────────────────────────────
+    if (st.step === 'manual_order_phone') {
+      const phone = text.replace(/\D/g,'')
+      if (!phone || phone.length < 10) { send(cid, '❌ Введите номер (10+ цифр):'); return }
+      const u = await q.getUser(phone)
+      if (!u) { send(cid, `❌ Клиент ${phone} не найден в БД.\n\nКлиент должен хотя бы раз написать боту.`, BACK); return }
+      conv.set(cid, { step: 'manual_order_dest', phone, name: u.name })
+      send(cid, `👤 *${u.name||phone}*\n\nВведите адрес назначения:`, BACK); return
+    }
+    if (st.step === 'manual_order_dest') {
+      if (!text || text.length < 3) { send(cid, '❌ Введите адрес (минимум 3 символа):'); return }
+      const tariffs = await q.getTariffs()
+      if (!tariffs.length) { send(cid, '❌ Нет тарифов. Добавьте тариф сначала.', BACK); return }
+      const list = tariffs.map((t,i) => `${i+1}. *${t.name}* — ${t.day_price} тг`).join('\n')
+      conv.set(cid, { step: 'manual_order_tariff', phone: st.phone, name: st.name, dest: text.trim(), tariffs })
+      send(cid, `📍 *${text.trim()}*\n\n*Выберите тариф (введите номер):*\n\n${list}`, BACK); return
+    }
+    if (st.step === 'manual_order_tariff') {
+      const n = parseInt(text)
+      if (isNaN(n) || n < 1 || n > st.tariffs.length) { send(cid, `❌ Номер 1–${st.tariffs.length}:`); return }
+      const tariff = st.tariffs[n-1]
+      const hour = new Date().getUTCHours() + 5
+      const isNight = hour >= 23 || hour < 7
+      const price = (isNight && tariff.night_price) ? tariff.night_price : tariff.day_price
+      conv.set(cid, { step: 'manual_order_confirm', phone: st.phone, name: st.name, dest: st.dest, tariff, price })
+      send(cid,
+        `🚖 *Подтвердите заказ:*\n\n👤 ${st.name||st.phone}\n📍 ${st.dest}\n📋 ${tariff.name}\n💰 *${price} тг*${isNight?' 🌙':''}\n\nСоздать?`,
+        CONFIRM('manual_order_exec', 'main')
+      ); return
+    }
+    if (data === 'manual_order_exec') {
+      // это callback — перехватывается выше, но добавим проверку
     }
 
     // ── рассылка ──────────────────────────────────────────

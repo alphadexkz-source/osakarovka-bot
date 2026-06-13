@@ -15,6 +15,7 @@ process.on('unhandledRejection', (reason) => {
 });
 const { route }  = require('./handlers/router');
 const { start: startTimers } = require('./modules/timerService');
+const tgNotify = require('./modules/telegramNotify');
 const config  = require('./config');
 const db      = require('./db/index');
 const wa      = require('./whatsapp/greenApi');
@@ -234,6 +235,7 @@ const server = app.listen(config.PORT, async () => {
 
   await recoverOnStartup();
   startTimers();
+  setTimeout(() => tgNotify.onBotStarted(), 3000);
 
   // Уведомление админу о рестарте (cooldown 10 мин — защита от crash-loop спама)
   getSetting('admin_phone').then(async (adminPhone) => {

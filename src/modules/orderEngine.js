@@ -2,6 +2,7 @@ const db = require('../db/index')
 const q = require('../db/queries')
 const config = require('../config')
 const notify = require('./notificationService')
+const tgNotify = require('./telegramNotify')
 const driverMgr = require('./driverManager')
 const wa = require('../whatsapp/greenApi')
 const log = require('../logger')
@@ -68,6 +69,7 @@ const create = async (clientPhone, destination, priceInfo) => {
 
   // ── Обычный заказ: ищем водителя сразу ─────────────────────────────────────
   log.order('create', { orderId: order.id, client: clientPhone, dest: destination, price: priceInfo.price, isFree })
+  tgNotify.onOrderCreated({ ...order, client_phone: clientPhone })
   await notify.clientSearching(clientPhone, destination, priceInfo.price, isFree)
   await q.setSession(clientPhone, 'waiting_driver', { order_id: order.id })
 
@@ -154,6 +156,7 @@ const dispatch_queue = async (orderId, triedInit, circlesInit) => {
           }
         }
         await q.updateOrder(orderId, { status: 'cancelled', cancel_reason: 'no_drivers', cancelled_at: new Date() })
+        tgNotify.onNoDrivers(order)
         await notify.clientNoDrivers(order.client_phone)
         await q.clearSession(order.client_phone)
         return
@@ -195,6 +198,7 @@ const dispatch_first = async (order) => {
   const drivers = await driverMgr.getAllOnline()
   if (!drivers.length) {
     await q.updateOrder(order.id, { status: 'cancelled', cancel_reason: 'no_drivers', cancelled_at: new Date() })
+    tgNotify.onNoDrivers(order)
     await notify.clientNoDrivers(order.client_phone)
     await q.clearSession(order.client_phone)
     return
