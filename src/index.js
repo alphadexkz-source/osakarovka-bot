@@ -115,14 +115,20 @@ app.post('/webhook', async (req, res) => {
 
 // ─── Tender OAuth callback ────────────────────────────────────
 app.get('/tender/callback', async (req, res) => {
-  const { code, error } = req.query;
+  const { code, error, error_description } = req.query;
   if (error) {
+    const desc = error_description ? decodeURIComponent(error_description) : error;
+    log.warn('tender_oauth_error', { error, error_description: desc });
     return res.send(`<!DOCTYPE html><html><body style="font-family:sans-serif;text-align:center;padding:40px">
-      <h2>❌ Ошибка авторизации</h2><p>${error}</p><p>Закройте вкладку и попробуйте снова.</p></body></html>`);
+      <h2>❌ Ошибка авторизации</h2>
+      <p style="color:#c00"><b>${error}</b></p>
+      <p>${desc !== error ? desc : ''}</p>
+      <p>Вернитесь в Telegram, нажмите 🏛 Тендеры → 🔑 Авторизоваться снова.</p></body></html>`);
   }
   if (!code) {
     return res.send(`<!DOCTYPE html><html><body style="font-family:sans-serif;text-align:center;padding:40px">
-      <h2>❌ Код не получен</h2></body></html>`);
+      <h2>❌ Код авторизации не получен</h2>
+      <p>Попробуйте снова через Telegram.</p></body></html>`);
   }
   try {
     const tenders = require('../agent/tenders');
@@ -132,8 +138,11 @@ app.get('/tender/callback', async (req, res) => {
       <p>Вернитесь в Telegram и нажмите <b>🏛 Тендеры</b> снова.</p>
       <p style="color:gray">Вкладку можно закрыть.</p></body></html>`);
   } catch(e) {
+    log.error('tender_exchange_error', e);
     res.send(`<!DOCTYPE html><html><body style="font-family:sans-serif;text-align:center;padding:40px">
-      <h2>❌ ${e.message}</h2></body></html>`);
+      <h2>❌ Ошибка обмена кода</h2>
+      <p style="color:#c00">${e.message}</p>
+      <p>Вернитесь в Telegram и попробуйте снова.</p></body></html>`);
   }
 });
 

@@ -1,8 +1,9 @@
 'use strict'
 // Интеграция с 10b.kz MCP — госзакуп и самрук-казына
-// OAuth 2.0 Authorization Code + MCP JSON-RPC over HTTP
+// OAuth 2.0 Authorization Code + PKCE + MCP JSON-RPC over HTTP
 
 require('dotenv').config({ path: require('path').join(__dirname, '../.env') })
+const crypto = require('crypto')
 const { Pool } = require('pg')
 
 const MCP_URL    = 'https://mcp.10b.kz/mcp'
@@ -71,33 +72,50 @@ const _refreshToken = async (refresh) => {
   return d.access_token
 }
 
+// ─── PKCE helpers ────────────────────────────────────────────
+const generatePkce = () => {
+  const verifier = crypto.randomBytes(32).toString('base64url')
+  const challenge = crypto.createHash('sha256').update(verifier).digest('base64url')
+  return { verifier, challenge }
+}
+
 // ─── OAuth flow ──────────────────────────────────────────────
-const getAuthUrl = () => {
+const getAuthUrl = async () => {
   if (!CLIENT_ID) return null
+  const { verifier, challenge } = generatePkce()
+  // Сохраняем verifier в БД — нужен при обмене кода на токен
+  await setSetting('tender_code_verifier', verifier)
   return `${AUTH_URL}?` + new URLSearchParams({
     response_type: 'code',
     client_id: CLIENT_ID,
     redirect_uri: REDIRECT_URI,
     scope: 'mcp',
+    code_challenge: challenge,
+    code_challenge_method: 'S256',
   }).toString()
 }
 
 const exchangeCode = async (code) => {
+  const verifier = await getSetting('tender_code_verifier')
+  const body = new URLSearchParams({
+    grant_type: 'authorization_code',
+    code,
+    redirect_uri: REDIRECT_URI,
+    client_id: CLIENT_ID,
+    client_secret: CLIENT_SECRET,
+  })
+  if (verifier) body.append('code_verifier', verifier)
   const r = await fetch(TOKEN_URL, {
     method: 'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    body: new URLSearchParams({
-      grant_type: 'authorization_code',
-      code,
-      redirect_uri: REDIRECT_URI,
-      client_id: CLIENT_ID,
-      client_secret: CLIENT_SECRET,
-    }).toString(),
+    body: body.toString(),
     signal: AbortSignal.timeout(10000),
   })
   const d = await r.json()
   if (d.error) throw new Error(d.error_description || d.error)
   await saveTokens(d.access_token, d.refresh_token, d.expires_in)
+  // Убираем использованный verifier
+  await setSetting('tender_code_verifier', '')
   return true
 }
 

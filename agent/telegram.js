@@ -643,7 +643,7 @@ bot.on('callback_query', async (cb) => {
     if (data === 'tender_menu') {
       const auth = await tenders.isAuthorized()
       if (!auth) {
-        const url = tenders.getAuthUrl()
+        const url = await tenders.getAuthUrl()
         if (!url) {
           edit(cid, mid,
             '🏛 *Тендеры 10b.kz*\n\n❌ Не задан TENDER_CLIENT_ID в .env\n\nДобавьте переменные и перезапустите.',
