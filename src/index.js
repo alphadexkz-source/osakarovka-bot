@@ -117,8 +117,8 @@ app.post('/webhook', async (req, res) => {
 app.get('/tender/callback', async (req, res) => {
   const { code, error, error_description } = req.query;
   if (error) {
-    const desc = error_description ? decodeURIComponent(error_description) : error;
-    log.warn('tender_oauth_error', { error, error_description: desc });
+    const desc = error_description ? decodeURIComponent(error_description) : '';
+    log.warn('tender_oauth_error', `error=${error}${desc ? '; ' + desc : ''}`);
     return res.send(`<!DOCTYPE html><html><body style="font-family:sans-serif;text-align:center;padding:40px">
       <h2>❌ Ошибка авторизации</h2>
       <p style="color:#c00"><b>${error}</b></p>
@@ -138,7 +138,7 @@ app.get('/tender/callback', async (req, res) => {
       <p>Вернитесь в Telegram и нажмите <b>🏛 Тендеры</b> снова.</p>
       <p style="color:gray">Вкладку можно закрыть.</p></body></html>`);
   } catch(e) {
-    log.error('tender_exchange_error', e);
+    log.error('tender_exchange_error', e, { message: e.message });
     res.send(`<!DOCTYPE html><html><body style="font-family:sans-serif;text-align:center;padding:40px">
       <h2>❌ Ошибка обмена кода</h2>
       <p style="color:#c00">${e.message}</p>
