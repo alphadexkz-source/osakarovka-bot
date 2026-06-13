@@ -130,8 +130,6 @@ const revokeAuth = async () => {
 }
 
 // ─── MCP core ────────────────────────────────────────────────
-let _initialized = false
-
 const mcpPost = async (method, params, token) => {
   const r = await fetch(MCP_URL, {
     method: 'POST',
@@ -141,12 +139,13 @@ const mcpPost = async (method, params, token) => {
       'Accept': 'application/json, text/event-stream',
     },
     body: JSON.stringify({ jsonrpc: '2.0', method, params: params || {}, id: Date.now() }),
-    signal: AbortSignal.timeout(15000),
+    signal: AbortSignal.timeout(12000),
   })
 
   const ct = r.headers.get('content-type') || ''
 
   if (ct.includes('text/event-stream')) {
+    // Читаем SSE: берём первый валидный результат, не ждём конца потока
     const text = await r.text()
     for (const block of text.split('\n\n')) {
       const dataLine = block.split('\n').find(l => l.startsWith('data: '))
@@ -165,21 +164,11 @@ const mcpPost = async (method, params, token) => {
   return data.result
 }
 
-const ensureInit = async (token) => {
-  if (_initialized) return
-  await mcpPost('initialize', {
-    protocolVersion: '2024-11-05',
-    clientInfo: { name: 'hermes', version: '1.0' },
-    capabilities: {},
-  }, token)
-  _initialized = true
-}
-
 // ─── Public API ──────────────────────────────────────────────
 const listTools = async () => {
   const token = await getAccessToken()
   if (!token) throw new Error('Нет токена. Нажмите 🔑 Авторизоваться')
-  await ensureInit(token)
+  // initialize не требуется — 10b.kz работает без него
   const res = await mcpPost('tools/list', {}, token)
   return res?.tools || []
 }
@@ -187,7 +176,6 @@ const listTools = async () => {
 const callTool = async (toolName, args = {}) => {
   const token = await getAccessToken()
   if (!token) throw new Error('Нет токена. Нажмите 🔑 Авторизоваться')
-  await ensureInit(token)
   const res = await mcpPost('tools/call', { name: toolName, arguments: args }, token)
   if (!res) return '(пустой ответ)'
   if (Array.isArray(res.content)) {
