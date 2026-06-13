@@ -521,10 +521,17 @@ bot.on('callback_query', async (cb) => {
         KB(
           [{ text: '🔍 Проверить бота', callback_data: 'monitor_run' }, { text: '📜 Логи', callback_data: 'monitor_logs' }],
           [{ text: '💻 Сервер CPU/RAM', callback_data: 'monitor_server' }, { text: '🧠 Память агента', callback_data: 'monitor_memory' }],
+          [{ text: '🔌 API статус', callback_data: 'monitor_apis' }],
           [{ text: '🚀 Деплой (git pull)', callback_data: 'monitor_deploy' }, { text: '🔄 Перезапуск', callback_data: 'monitor_restart' }],
           [{ text: '◀️ Меню', callback_data: 'main' }]
         )
       ); return
+    }
+    if (data === 'monitor_apis') {
+      edit(cid, mid, '🔌 *Проверяю все API...*', BACK)
+      const { runAll, formatReport } = require('../tools/api_monitor')
+      const results = await runAll()
+      send(cid, formatReport(results), KB([{ text: '🔄 Обновить', callback_data: 'monitor_apis' }, { text: '◀️ Мониторинг', callback_data: 'menu_monitor' }])); return
     }
     if (data === 'monitor_run') {
       edit(cid, mid, '🔍 Запускаю проверку...', BACK)

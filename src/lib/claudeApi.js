@@ -1,102 +1,86 @@
 'use strict'
 
-// LLM для чата с клиентами (Айгуль): Groq → Cerebras → xAI → OpenRouter
-// Groq бесплатный, 30 RPM, llama-3.3-70b — отличное качество для чата
+// LLM цепочка для Айгуль (чат с клиентами):
+// Groq (420ms, бесплатно) → Claude Haiku (4.6s, платно) → OpenRouter (резерв)
 
-const callGroq = async ({ system, messages, maxTokens, temperature }) => {
-  const apiKey = process.env.GROQ_API_KEY
-  if (!apiKey) throw new Error('GROQ_API_KEY не задан')
-  const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
-    body: JSON.stringify({
-      model: 'llama-3.3-70b-versatile',
-      max_tokens: maxTokens,
-      temperature,
-      messages: [{ role: 'system', content: system }, ...messages],
-    }),
-    signal: AbortSignal.timeout(10000),
-  })
-  const data = await res.json()
-  if (data.error) throw new Error(data.error.message || JSON.stringify(data.error))
-  return data.choices?.[0]?.message?.content?.trim() || null
+const PROVIDERS = {
+  groq: {
+    url: 'https://api.groq.com/openai/v1/chat/completions',
+    model: 'llama-3.3-70b-versatile',
+    getKey: () => process.env.GROQ_API_KEY,
+    auth: (k) => `Bearer ${k}`,
+    toBody: (model, maxTokens, temperature, messages) => ({ model, max_tokens: maxTokens, temperature, messages }),
+    fromResp: (d) => d.choices?.[0]?.message?.content?.trim() || null,
+  },
+  haiku: {
+    url: 'https://api.anthropic.com/v1/messages',
+    model: 'claude-haiku-4-5-20251001',
+    getKey: () => process.env.ANTHROPIC_API_KEY,
+    headers: (k) => ({ 'Content-Type': 'application/json', 'x-api-key': k, 'anthropic-version': '2023-06-01' }),
+    toBody: (model, maxTokens, temperature, system, messages) => ({ model, max_tokens: maxTokens, temperature, system, messages }),
+    fromResp: (d) => d.content?.[0]?.text?.trim() || null,
+    isAnthropic: true,
+  },
+  openrouter: {
+    url: 'https://openrouter.ai/api/v1/chat/completions',
+    model: 'meta-llama/llama-3.3-70b-instruct:free',
+    getKey: () => process.env.OPENROUTER_API_KEY,
+    auth: (k) => `Bearer ${k}`,
+    toBody: (model, maxTokens, temperature, messages) => ({ model, max_tokens: maxTokens, temperature, messages }),
+    fromResp: (d) => d.choices?.[0]?.message?.content?.trim() || null,
+  },
 }
 
-const callCerebras = async ({ system, messages, maxTokens, temperature }) => {
-  const apiKey = process.env.CEREBRAS_API_KEY
-  if (!apiKey) throw new Error('CEREBRAS_API_KEY не задан')
-  const res = await fetch('https://api.cerebras.ai/v1/chat/completions', {
+const callProvider = async (name, { system, messages, maxTokens, temperature }) => {
+  const p = PROVIDERS[name]
+  const key = p.getKey()
+  if (!key) throw new Error(`${name}: ключ не задан`)
+
+  const headers = p.headers ? p.headers(key) : { 'Content-Type': 'application/json', 'Authorization': p.auth(key) }
+  const msgs = [{ role: 'user', content: messages.map(m => m.content).join('\n') }]
+  const body = p.isAnthropic
+    ? p.toBody(p.model, maxTokens, temperature, system, messages)
+    : p.toBody(p.model, maxTokens, temperature, [{ role: 'system', content: system }, ...messages])
+
+  const res = await fetch(p.url, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
-    body: JSON.stringify({
-      model: 'llama-3.3-70b',
-      max_tokens: maxTokens,
-      temperature,
-      messages: [{ role: 'system', content: system }, ...messages],
-    }),
-    signal: AbortSignal.timeout(10000),
+    headers,
+    body: JSON.stringify(body),
+    signal: AbortSignal.timeout(15000),
   })
   const data = await res.json()
-  if (data.error) throw new Error(data.error.message || JSON.stringify(data.error))
-  return data.choices?.[0]?.message?.content?.trim() || null
+  if (data.error || data.code) throw new Error(data.error?.message || data.error?.type || data.code)
+  const result = p.fromResp(data)
+  if (!result) throw new Error(`${name}: пустой ответ`)
+  return result
 }
 
-const callXai = async ({ system, messages, maxTokens, temperature }) => {
-  const apiKey = process.env.XAI_API_KEY
-  if (!apiKey) throw new Error('XAI_API_KEY не задан')
-  const res = await fetch('https://api.x.ai/v1/chat/completions', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
-    body: JSON.stringify({
-      model: 'grok-3-mini',
-      max_tokens: maxTokens,
-      temperature,
-      messages: [{ role: 'system', content: system }, ...messages],
-    }),
-    signal: AbortSignal.timeout(10000),
-  })
-  const data = await res.json()
-  if (data.error || data.code) throw new Error(data.error?.message || data.code)
-  return data.choices?.[0]?.message?.content?.trim() || null
-}
-
-const callOpenRouter = async ({ system, messages, maxTokens, temperature }) => {
-  const apiKey = process.env.OPENROUTER_API_KEY
-  if (!apiKey) throw new Error('OPENROUTER_API_KEY не задан')
-  const res = await fetch('https://openrouter.ai/api/v1/chat/completions', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
-    body: JSON.stringify({
-      model: 'meta-llama/llama-3.3-70b-instruct:free',
-      max_tokens: maxTokens,
-      temperature,
-      messages: [{ role: 'system', content: system }, ...messages],
-    }),
-    signal: AbortSignal.timeout(12000),
-  })
-  const data = await res.json()
-  if (data.error) throw new Error(data.error.message || JSON.stringify(data.error))
-  return data.choices?.[0]?.message?.content?.trim() || null
-}
-
-// Цепочка: Groq (primary) → Cerebras → xAI → OpenRouter
 const callClaude = async ({ system, messages, maxTokens = 250, temperature = 0.8 }) => {
-  const args = { system, messages, maxTokens, temperature }
-  const providers = [
-    { name: 'Groq',       fn: callGroq       },
-    { name: 'Cerebras',   fn: callCerebras   },
-    { name: 'xAI',        fn: callXai        },
-    { name: 'OpenRouter', fn: callOpenRouter },
-  ]
-  for (const { name, fn } of providers) {
+  const chain = ['groq', 'haiku', 'openrouter']
+  for (const name of chain) {
     try {
-      const r = await fn(args)
-      if (r) return r
+      return await callProvider(name, { system, messages, maxTokens, temperature })
     } catch (e) {
-      console.warn(`[claudeApi] ${name} ошибка: ${e.message}`)
+      console.warn(`[claudeApi] ${name}: ${e.message}`)
     }
   }
   return null
 }
 
-module.exports = { callClaude, MODEL: 'groq-llama-3.3-70b' }
+// Для инструмента мониторинга — тестирует конкретного провайдера
+const testProvider = async (name) => {
+  const t = Date.now()
+  try {
+    const r = await callProvider(name, {
+      system: 'Ты помощник.',
+      messages: [{ role: 'user', content: 'ping' }],
+      maxTokens: 10,
+      temperature: 0.1,
+    })
+    return { ok: true, ms: Date.now() - t, response: r }
+  } catch (e) {
+    return { ok: false, ms: Date.now() - t, error: e.message }
+  }
+}
+
+module.exports = { callClaude, testProvider, PROVIDERS, MODEL: 'groq→haiku→openrouter' }
