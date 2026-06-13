@@ -216,7 +216,11 @@ PM2 запуск:
   process.exit(0);
 };
 
-handleCLI().catch(e => {
-  console.error('[Hermes] Ошибка:', e.message);
-  process.exit(1);
-});
+if (require.main === module) {
+  handleCLI().catch(e => {
+    console.error('[Hermes] Ошибка:', e.message);
+    process.exit(1);
+  });
+}
+
+module.exports = { monitorBot, analyze };

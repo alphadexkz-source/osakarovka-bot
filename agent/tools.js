@@ -71,30 +71,32 @@ const getBotStats = async () => {
   return r.rows?.[0] || {};
 };
 
-// ─── CLAUDE API ───────────────────────────────────────────────
+// ─── GROK xAI API ────────────────────────────────────────────
 const askClaude = async (question, context = '') => {
-  if (!process.env.ANTHROPIC_API_KEY) return 'Claude API key не настроен';
+  const apiKey = process.env.XAI_API_KEY;
+  if (!apiKey) return 'XAI_API_KEY не настроен';
   try {
-    const response = await fetch('https://api.anthropic.com/v1/messages', {
+    const res = await fetch('https://api.x.ai/v1/chat/completions', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'x-api-key': process.env.ANTHROPIC_API_KEY,
-        'anthropic-version': '2023-06-01',
+        'Authorization': `Bearer ${apiKey}`,
       },
       body: JSON.stringify({
-        model: 'claude-sonnet-4-6',
+        model: 'grok-3',
         max_tokens: 1024,
-        messages: [{
-          role: 'user',
-          content: (context ? `Контекст проекта:\n${context}\n\n` : '') + question
-        }]
-      })
+        temperature: 0.3,
+        messages: [
+          ...(context ? [{ role: 'system', content: `Контекст проекта:\n${context}` }] : []),
+          { role: 'user', content: question },
+        ],
+      }),
+      signal: AbortSignal.timeout(20000),
     });
-    const data = await response.json();
-    return data.content?.[0]?.text || 'Нет ответа';
+    const data = await res.json();
+    return data.choices?.[0]?.message?.content || 'Нет ответа';
   } catch(e) {
-    return 'Claude недоступен: ' + e.message;
+    return 'Grok недоступен: ' + e.message;
   }
 };
 

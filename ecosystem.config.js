@@ -9,7 +9,14 @@ module.exports = {
       max_memory_restart: '300M',
       env: { NODE_ENV: 'production' },
     },
-    // hermes-agent отключён — слишком много ложных алертов
-    // Включить: pm2 start hermes-agent -- loop
+    {
+      name: 'hermes-telegram',
+      script: 'agent/telegram.js',
+      instances: 1,
+      autorestart: true,
+      watch: false,
+      max_memory_restart: '150M',
+      env: { NODE_ENV: 'production' },
+    },
   ],
 };
