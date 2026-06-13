@@ -146,6 +146,37 @@ const analyze = async (question) => {
   return quickAnswer;
 };
 
+// ─── СВОБОДНЫЙ ЧАТ (не только такси) ────────────────────
+const freeChat = async (text, history = []) => {
+  const system = `Ты — Hermes, AI-ассистент.
+Твой пользователь — владелец такси-сервиса еОсакаровка (п. Осакаровка, Казахстан).
+Помогай с любыми задачами, не ограничиваясь такси:
+• Написать объявление, пост, SMS-рассылку для клиентов
+• Посчитать, проанализировать данные
+• Дать совет по бизнесу, маркетингу, найму водителей
+• Перевести текст (рус ↔ каз ↔ англ)
+• Ответить на любой вопрос
+Отвечай кратко и по делу на языке вопроса.`
+
+  const msgs = [
+    { role: 'system', content: system },
+    ...history.slice(-8),
+    { role: 'user', content: text },
+  ]
+
+  try {
+    return await tools.askGroq(msgs, 'llama-3.3-70b-versatile')
+  } catch (_) {}
+
+  // fallback — история как текстовый контекст
+  const histCtx = history.length
+    ? '\n\nПредыдущий разговор:\n' + history.map(m =>
+        `${m.role === 'user' ? 'Пользователь' : 'Ассистент'}: ${m.content}`
+      ).join('\n')
+    : ''
+  return await tools.askClaude(text, system + histCtx)
+}
+
 // ─── ОСНОВНОЙ ЦИКЛ ───────────────────────────────────────────
 const startLoop = async () => {
   console.log(`\n🤖 ${AGENT_NAME} запущен!`);
@@ -223,4 +254,4 @@ if (require.main === module) {
   });
 }
 
-module.exports = { monitorBot, analyze };
+module.exports = { monitorBot, analyze, freeChat };

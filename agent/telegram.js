@@ -2,7 +2,7 @@
 require('dotenv').config({ path: require('path').join(__dirname, '../.env') })
 
 const TelegramBot = require('node-telegram-bot-api')
-const { monitorBot, analyze } = require('./hermes')
+const { monitorBot, analyze, freeChat } = require('./hermes')
 const tools  = require('./tools')
 const memory = require('./memory')
 const q      = require('../src/db/queries')
@@ -46,6 +46,7 @@ const MAIN = { reply_markup: { inline_keyboard: [
    { text: '🤖 Монит./Деплой',   callback_data: 'menu_monitor'       }],
   [{ text: '📝 Задачи',          callback_data: 'menu_tasks'         },
    { text: '💬 Спросить агента', callback_data: 'ask_start'          }],
+  [{ text: '🧠 ИИ Ассистент',   callback_data: 'free_chat_start'    }],
 ]}}
 
 const BACK  = { reply_markup: { inline_keyboard: [[{ text: '◀️ Меню', callback_data: 'main' }]] }}
@@ -624,6 +625,18 @@ bot.on('callback_query', async (cb) => {
       edit(cid, mid, '💬 *Задайте вопрос агенту Hermes:*\n\nСпросите что угодно о боте...\n\n/cancel', BACK); return
     }
 
+    // ── ИИ АССИСТЕНТ (свободный чат) ──────────────────────
+    if (data === 'free_chat_start') {
+      conv.set(cid, { step: 'free_chat', history: [] })
+      edit(cid, mid,
+        '🧠 *ИИ Ассистент Hermes*\n\n' +
+        'Задайте любой вопрос — не только про такси.\n' +
+        'Перевод, текст для рассылки, совет по бизнесу, расчёт — что угодно.\n\n' +
+        '_/cancel или кнопка Выйти — завершить чат_',
+        KB([{ text: '◀️ Выйти', callback_data: 'main' }])
+      ); return
+    }
+
     // ── РУЧНОЙ ЗАКАЗ — финальный шаг ──────────────────────
     if (data === 'manual_order_exec') {
       const st = conv.get(cid); conv.delete(cid)
@@ -682,6 +695,24 @@ bot.on('message', async (msg) => {
       conv.delete(cid)
       await send(cid, '🤔 Думаю...')
       send(cid, (await analyze(text)).slice(0, 3500), MAIN); return
+    }
+
+    if (st.step === 'free_chat') {
+      const history = st.history || []
+      const thinking = await send(cid, '🤔 ...')
+      let reply
+      try { reply = await freeChat(text, history) }
+      catch(e) { reply = `❌ ${e.message}` }
+      const newHistory = [
+        ...history,
+        { role: 'user', content: text },
+        { role: 'assistant', content: reply },
+      ].slice(-20)
+      conv.set(cid, { step: 'free_chat', history: newHistory })
+      // удаляем "🤔 ..." и отправляем ответ
+      bot.deleteMessage(cid, thinking.message_id).catch(() => {})
+      send(cid, reply.slice(0, 4000), KB([{ text: '◀️ Выйти', callback_data: 'main' }]))
+      return
     }
 
     // ── заказы ────────────────────────────────────────────
