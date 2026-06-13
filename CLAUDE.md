@@ -1,5 +1,11 @@
 # CLAUDE.md — Osakarovka Bot v2.0
 
+## Правила работы с проектом
+
+1. **Graphify первым** — перед любой задачей запускать `/graphify` если `graphify-out/` устарел или отсутствует
+2. **Context7** — для Supabase, whatsapp-web.js, Yandex API использовать Context7 MCP (актуальная документация)
+3. **Swarm состав** — Backend Architect + Eng Manager (gstack) + QA Lead
+
 ## Ruflo / claude-flow память
 
 Ключи в namespace `osakarovka-bot` (поиск через `mcp__claude-flow__memory_search`):
