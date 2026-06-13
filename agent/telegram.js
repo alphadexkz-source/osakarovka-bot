@@ -25,7 +25,10 @@ const send = (cid, text, extra = {}) =>
 
 const edit = (cid, mid, text, extra = {}) =>
   bot.editMessageText(text, { chat_id: cid, message_id: mid, parse_mode: 'Markdown', ...extra })
-    .catch(() => {})
+    .catch(() =>
+      bot.editMessageText(text.replace(/[*_`[\]]/g, ''), { chat_id: cid, message_id: mid, ...extra })
+        .catch(() => {})
+    )
 
 const db = (sql, params = []) => tools.queryDB(sql, params)
 
@@ -674,12 +677,14 @@ bot.on('callback_query', async (cb) => {
       try {
         const tools = await tenders.listTools()
         const MAX = 3500
+        // Экранируем _ для Markdown v1 (иначе italic-break)
+        const esc = s => s.replace(/_/g, '\\_')
         let body = `🛠 *Инструменты 10b.kz (${tools.length}):*\n\n`
         let shown = 0
         for (const t of tools) {
-          const desc = (t.description || '').slice(0, 100)
-          const line = `• \`${t.name}\`${desc ? ' — ' + desc : ''}\n`
-          if ((body + line).length > MAX) { body += `\n_...и ещё ${tools.length - shown}_`; break }
+          const desc = (t.description || '').split('\n')[0].slice(0, 80)
+          const line = `• ${esc(t.name)}${desc ? ' — ' + esc(desc) : ''}\n`
+          if ((body + line).length > MAX) { body += `\n_(и ещё ${tools.length - shown})_`; break }
           body += line; shown++
         }
         edit(cid, mid, body || 'нет данных', KB([{ text: '◀️ Тендеры', callback_data: 'tender_menu' }]))
