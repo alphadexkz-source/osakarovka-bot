@@ -71,33 +71,46 @@ const getBotStats = async () => {
   return r.rows?.[0] || {};
 };
 
-// ─── GROK xAI API ────────────────────────────────────────────
+// ─── GROK xAI API → Groq fallback ───────────────────────────
 const askClaude = async (question, context = '') => {
-  const apiKey = process.env.XAI_API_KEY;
-  if (!apiKey) return 'XAI_API_KEY не настроен';
-  try {
-    const res = await fetch('https://api.x.ai/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${apiKey}`,
-      },
-      body: JSON.stringify({
-        model: 'grok-3',
-        max_tokens: 1024,
-        temperature: 0.3,
-        messages: [
-          ...(context ? [{ role: 'system', content: `Контекст проекта:\n${context}` }] : []),
-          { role: 'user', content: question },
-        ],
-      }),
-      signal: AbortSignal.timeout(20000),
-    });
-    const data = await res.json();
-    return data.choices?.[0]?.message?.content || 'Нет ответа';
-  } catch(e) {
-    return 'Grok недоступен: ' + e.message;
+  const msgs = [
+    ...(context ? [{ role: 'system', content: `Контекст проекта:\n${context}` }] : []),
+    { role: 'user', content: question },
+  ];
+
+  // 1. xAI Grok
+  const xaiKey = process.env.XAI_API_KEY;
+  if (xaiKey) {
+    try {
+      const res = await fetch('https://api.x.ai/v1/chat/completions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${xaiKey}` },
+        body: JSON.stringify({ model: 'grok-3', max_tokens: 1024, temperature: 0.3, messages: msgs }),
+        signal: AbortSignal.timeout(20000),
+      });
+      const data = await res.json();
+      if (!data.error && !data.code && data.choices?.[0]?.message?.content) {
+        return data.choices[0].message.content;
+      }
+    } catch (_) {}
   }
+
+  // 2. Groq fallback
+  const groqKey = process.env.GROQ_API_KEY;
+  if (groqKey) {
+    try {
+      const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${groqKey}` },
+        body: JSON.stringify({ model: 'llama-3.3-70b-versatile', max_tokens: 1024, temperature: 0.3, messages: msgs }),
+        signal: AbortSignal.timeout(20000),
+      });
+      const data = await res.json();
+      if (data.choices?.[0]?.message?.content) return data.choices[0].message.content;
+    } catch (_) {}
+  }
+
+  return 'LLM недоступен (проверь XAI_API_KEY и GROQ_API_KEY)';
 };
 
 // ─── GROQ ФУНКЦИЯ ─────────────────────────────────────────────
