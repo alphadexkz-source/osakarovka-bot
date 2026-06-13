@@ -71,14 +71,44 @@ const getBotStats = async () => {
   return r.rows?.[0] || {};
 };
 
-// ─── GROK xAI API → Groq fallback ───────────────────────────
+// ─── LLM для анализа: Groq → Cerebras → xAI ─────────────────
 const askClaude = async (question, context = '') => {
   const msgs = [
     ...(context ? [{ role: 'system', content: `Контекст проекта:\n${context}` }] : []),
     { role: 'user', content: question },
   ];
 
-  // 1. xAI Grok
+  // 1. Groq (primary — бесплатный)
+  const groqKey = process.env.GROQ_API_KEY;
+  if (groqKey) {
+    try {
+      const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${groqKey}` },
+        body: JSON.stringify({ model: 'llama-3.3-70b-versatile', max_tokens: 1024, temperature: 0.3, messages: msgs }),
+        signal: AbortSignal.timeout(15000),
+      });
+      const data = await res.json();
+      if (!data.error && data.choices?.[0]?.message?.content) return data.choices[0].message.content;
+    } catch (_) {}
+  }
+
+  // 2. Cerebras
+  const cerebrasKey = process.env.CEREBRAS_API_KEY;
+  if (cerebrasKey) {
+    try {
+      const res = await fetch('https://api.cerebras.ai/v1/chat/completions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${cerebrasKey}` },
+        body: JSON.stringify({ model: 'llama-3.3-70b', max_tokens: 1024, temperature: 0.3, messages: msgs }),
+        signal: AbortSignal.timeout(12000),
+      });
+      const data = await res.json();
+      if (!data.error && data.choices?.[0]?.message?.content) return data.choices[0].message.content;
+    } catch (_) {}
+  }
+
+  // 3. xAI Grok (если появятся кредиты)
   const xaiKey = process.env.XAI_API_KEY;
   if (xaiKey) {
     try {
@@ -89,28 +119,11 @@ const askClaude = async (question, context = '') => {
         signal: AbortSignal.timeout(20000),
       });
       const data = await res.json();
-      if (!data.error && !data.code && data.choices?.[0]?.message?.content) {
-        return data.choices[0].message.content;
-      }
+      if (!data.error && !data.code && data.choices?.[0]?.message?.content) return data.choices[0].message.content;
     } catch (_) {}
   }
 
-  // 2. Groq fallback
-  const groqKey = process.env.GROQ_API_KEY;
-  if (groqKey) {
-    try {
-      const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${groqKey}` },
-        body: JSON.stringify({ model: 'llama-3.3-70b-versatile', max_tokens: 1024, temperature: 0.3, messages: msgs }),
-        signal: AbortSignal.timeout(20000),
-      });
-      const data = await res.json();
-      if (data.choices?.[0]?.message?.content) return data.choices[0].message.content;
-    } catch (_) {}
-  }
-
-  return 'LLM недоступен (проверь XAI_API_KEY и GROQ_API_KEY)';
+  return 'LLM недоступен';
 };
 
 // ─── GROQ ФУНКЦИЯ ─────────────────────────────────────────────
