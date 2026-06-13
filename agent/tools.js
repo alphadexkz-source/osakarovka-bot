@@ -71,14 +71,14 @@ const getBotStats = async () => {
   return r.rows?.[0] || {};
 };
 
-// ─── LLM для анализа: Groq → Cerebras → xAI ─────────────────
+// ─── LLM для анализа: Groq → Gemini → LLM7.io → Cerebras → OpenRouter ──────
 const askClaude = async (question, context = '') => {
   const msgs = [
     ...(context ? [{ role: 'system', content: `Контекст проекта:\n${context}` }] : []),
     { role: 'user', content: question },
   ];
 
-  // 1. Groq (primary — бесплатный)
+  // 1. Groq (primary — бесплатный, 30 RPM)
   const groqKey = process.env.GROQ_API_KEY;
   if (groqKey) {
     try {
@@ -93,7 +93,34 @@ const askClaude = async (question, context = '') => {
     } catch (_) {}
   }
 
-  // 2. Cerebras
+  // 2. Google Gemini (gemini-2.5-flash, бесплатно, 15 RPM)
+  const geminiKey = process.env.GEMINI_API_KEY;
+  if (geminiKey) {
+    try {
+      const res = await fetch('https://generativelanguage.googleapis.com/v1beta/openai/chat/completions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${geminiKey}` },
+        body: JSON.stringify({ model: 'gemini-2.5-flash', max_tokens: 1024, temperature: 0.3, messages: msgs }),
+        signal: AbortSignal.timeout(15000),
+      });
+      const data = await res.json();
+      if (!data.error && data.choices?.[0]?.message?.content) return data.choices[0].message.content;
+    } catch (_) {}
+  }
+
+  // 3. LLM7.io (deepseek-v4-flash, бесплатно, без ключа, 30 RPM)
+  try {
+    const res = await fetch('https://api.llm7.io/v1/chat/completions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer no-key' },
+      body: JSON.stringify({ model: 'deepseek-v4-flash', max_tokens: 1024, temperature: 0.3, messages: msgs }),
+      signal: AbortSignal.timeout(15000),
+    });
+    const data = await res.json();
+    if (!data.error && data.choices?.[0]?.message?.content) return data.choices[0].message.content;
+  } catch (_) {}
+
+  // 4. Cerebras (если ключ задан)
   const cerebrasKey = process.env.CEREBRAS_API_KEY;
   if (cerebrasKey) {
     try {
@@ -108,18 +135,18 @@ const askClaude = async (question, context = '') => {
     } catch (_) {}
   }
 
-  // 3. xAI Grok (если появятся кредиты)
-  const xaiKey = process.env.XAI_API_KEY;
-  if (xaiKey) {
+  // 5. OpenRouter (последний резерв, 50 RPD лимит)
+  const orKey = process.env.OPENROUTER_API_KEY;
+  if (orKey) {
     try {
-      const res = await fetch('https://api.x.ai/v1/chat/completions', {
+      const res = await fetch('https://openrouter.ai/api/v1/chat/completions', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${xaiKey}` },
-        body: JSON.stringify({ model: 'grok-3', max_tokens: 1024, temperature: 0.3, messages: msgs }),
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${orKey}` },
+        body: JSON.stringify({ model: 'meta-llama/llama-3.3-70b-instruct:free', max_tokens: 1024, temperature: 0.3, messages: msgs }),
         signal: AbortSignal.timeout(20000),
       });
       const data = await res.json();
-      if (!data.error && !data.code && data.choices?.[0]?.message?.content) return data.choices[0].message.content;
+      if (!data.error && data.choices?.[0]?.message?.content) return data.choices[0].message.content;
     } catch (_) {}
   }
 

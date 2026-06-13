@@ -57,7 +57,39 @@ const TESTS = [
     },
   },
   {
-    name: 'xAI Grok-3-mini',
+    name: 'Google Gemini 2.5 Flash',
+    icon: '🟦',
+    test: async () => {
+      const k = process.env.GEMINI_API_KEY
+      if (!k) return { ok: false, error: 'нет ключа' }
+      const res = await fetch('https://generativelanguage.googleapis.com/v1beta/openai/chat/completions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${k}` },
+        body: JSON.stringify({ model: 'gemini-2.5-flash', max_tokens: 5, messages: [{ role: 'user', content: 'hi' }] }),
+        signal: AbortSignal.timeout(10000),
+      })
+      const d = await res.json()
+      if (d.error || d.code) return { ok: false, error: d.error?.message || d.error?.type || d.code }
+      return { ok: true, info: 'бесплатно: 15 RPM / 1K RPD' }
+    },
+  },
+  {
+    name: 'LLM7.io (без ключа)',
+    icon: '🆓',
+    test: async () => {
+      const res = await fetch('https://api.llm7.io/v1/chat/completions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer no-key' },
+        body: JSON.stringify({ model: 'deepseek-v4-flash', max_tokens: 5, messages: [{ role: 'user', content: 'hi' }] }),
+        signal: AbortSignal.timeout(10000),
+      })
+      const d = await res.json()
+      if (d.error || d.code) return { ok: false, error: d.error?.message || d.code }
+      return { ok: true, info: 'deepseek-v4-flash, 30 RPM, ключ не нужен' }
+    },
+  },
+  {
+    name: 'xAI Grok (нет кредитов)',
     icon: '🟥',
     test: async () => {
       const k = process.env.XAI_API_KEY
@@ -70,7 +102,7 @@ const TESTS = [
       })
       const d = await res.json()
       if (d.error || d.code) return { ok: false, error: d.error?.message || d.code }
-      return { ok: true, info: '$25/мес с X Premium+' }
+      return { ok: true, info: 'кредиты появились!' }
     },
   },
   {

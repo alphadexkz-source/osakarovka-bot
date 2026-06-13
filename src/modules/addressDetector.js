@@ -165,6 +165,40 @@ const callCerebras = async (text, systemPrompt) => {
   return resp.data;
 };
 
+// Google Gemini fallback (gemini-2.5-flash, бесплатно, 15 RPM, OpenAI-compatible)
+const callGemini = async (text, systemPrompt) => {
+  if (!process.env.GEMINI_API_KEY) return null;
+  const resp = await axios.post('https://generativelanguage.googleapis.com/v1beta/openai/chat/completions', {
+    model: 'gemini-2.5-flash',
+    messages: [{ role: 'system', content: systemPrompt }, { role: 'user', content: text }],
+    tools: TOOLS,
+    tool_choice: 'required',
+    max_tokens: 100,
+    temperature: 0,
+  }, {
+    headers: { Authorization: `Bearer ${process.env.GEMINI_API_KEY}`, 'Content-Type': 'application/json' },
+    timeout: 8000,
+  });
+  return resp.data;
+};
+
+// LLM7.io fallback (deepseek-v4-flash, бесплатно, без ключа, JSON mode)
+const callLLM7 = async (text, systemPrompt) => {
+  const resp = await axios.post('https://api.llm7.io/v1/chat/completions', {
+    model: 'deepseek-v4-flash',
+    messages: [
+      { role: 'system', content: systemPrompt + '\n\nОтвечай ТОЛЬКО JSON объектом без markdown: {"is_address": true или false, "destination": "адрес или пустая строка"}' },
+      { role: 'user', content: text },
+    ],
+    max_tokens: 100,
+    temperature: 0,
+  }, {
+    headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer no-key' },
+    timeout: 8000,
+  });
+  return resp.data;
+};
+
 // OpenRouter fallback (meta-llama/llama-3.3-70b-instruct:free, бесплатно, OpenAI-compatible)
 const callOpenRouter = async (text, systemPrompt) => {
   if (!process.env.OPENROUTER_API_KEY) return null;
@@ -268,7 +302,40 @@ is_address — строго boolean true или false, НИКОГДА строк
     return analysis;
   } catch (err) {
     console.error('[addressDetector:groq]', err.message);
-    // Cerebras fallback (тот же llama-3.3-70b, бесплатный провайдер)
+    // Gemini fallback (gemini-2.5-flash, бесплатно, tool_calling поддерживается)
+    try {
+      const geminiResp = await withTimeout(
+        callGemini(text, SYSTEM_CONTEXT + `\n\nПроанализируй сообщение клиента. Вызови инструмент analyze_message.\nis_address — строго boolean true или false.`),
+        8000, null
+      );
+      if (geminiResp) {
+        const toolCall = geminiResp.choices?.[0]?.message?.tool_calls?.[0];
+        const raw = toolCall ? JSON.parse(toolCall.function.arguments) : { is_address: false };
+        const analysis = { ...raw, is_address: raw.is_address === true || raw.is_address === 'true' };
+        cacheSet(lo, analysis, 3600000);
+        return analysis;
+      }
+    } catch (e2) {
+      console.error('[addressDetector:gemini]', e2.message);
+    }
+    // LLM7.io fallback (deepseek-v4-flash, без ключа, JSON mode)
+    try {
+      const llm7Resp = await withTimeout(
+        callLLM7(text, SYSTEM_CONTEXT + `\n\nПроанализируй сообщение клиента.\nis_address — строго boolean true или false.`),
+        8000, null
+      );
+      if (llm7Resp) {
+        const content = llm7Resp.choices?.[0]?.message?.content || '';
+        const jsonMatch = content.match(/\{[^}]+\}/);
+        const raw = jsonMatch ? JSON.parse(jsonMatch[0]) : { is_address: false };
+        const analysis = { ...raw, is_address: raw.is_address === true || raw.is_address === 'true' };
+        cacheSet(lo, analysis, 3600000);
+        return analysis;
+      }
+    } catch (e3) {
+      console.error('[addressDetector:llm7io]', e3.message);
+    }
+    // Cerebras fallback (llama-3.3-70b, если ключ задан)
     try {
       const cerebrasResp = await withTimeout(
         callCerebras(text, SYSTEM_CONTEXT + `\n\nПроанализируй сообщение клиента. Вызови инструмент analyze_message.\nis_address — строго boolean true или false.`),
@@ -281,8 +348,8 @@ is_address — строго boolean true или false, НИКОГДА строк
         cacheSet(lo, analysis, 3600000);
         return analysis;
       }
-    } catch (e2) {
-      console.error('[addressDetector:cerebras]', e2.message);
+    } catch (e4) {
+      console.error('[addressDetector:cerebras]', e4.message);
     }
     // OpenRouter fallback (llama-3.3-70b:free, OpenAI-compatible)
     try {
@@ -297,8 +364,8 @@ is_address — строго boolean true или false, НИКОГДА строк
         cacheSet(lo, analysis, 3600000);
         return analysis;
       }
-    } catch (e3) {
-      console.error('[addressDetector:openrouter]', e3.message);
+    } catch (e5) {
+      console.error('[addressDetector:openrouter]', e5.message);
     }
     // Финальный fallback — regex; короткий TTL чтобы переспросить LLM позже
     const fallback = { is_address: looksLikeAddress(lo) };

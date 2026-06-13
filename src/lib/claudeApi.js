@@ -1,7 +1,7 @@
 'use strict'
 
 // LLM цепочка для Айгуль (чат с клиентами):
-// Groq (420ms, бесплатно) → Claude Haiku (4.6s, платно) → OpenRouter (резерв)
+// Groq (бесплатно, 30 RPM) → Gemini 2.5 Flash (бесплатно, 15 RPM) → LLM7.io (бесплатно, без ключа) → Claude Haiku (платно, последний резерв)
 
 const PROVIDERS = {
   groq: {
@@ -9,6 +9,22 @@ const PROVIDERS = {
     model: 'llama-3.3-70b-versatile',
     getKey: () => process.env.GROQ_API_KEY,
     auth: (k) => `Bearer ${k}`,
+    toBody: (model, maxTokens, temperature, messages) => ({ model, max_tokens: maxTokens, temperature, messages }),
+    fromResp: (d) => d.choices?.[0]?.message?.content?.trim() || null,
+  },
+  gemini: {
+    url: 'https://generativelanguage.googleapis.com/v1beta/openai/chat/completions',
+    model: 'gemini-2.5-flash',
+    getKey: () => process.env.GEMINI_API_KEY,
+    auth: (k) => `Bearer ${k}`,
+    toBody: (model, maxTokens, temperature, messages) => ({ model, max_tokens: maxTokens, temperature, messages }),
+    fromResp: (d) => d.choices?.[0]?.message?.content?.trim() || null,
+  },
+  llm7io: {
+    url: 'https://api.llm7.io/v1/chat/completions',
+    model: 'deepseek-v4-flash',
+    getKey: () => 'no-key',
+    auth: () => 'Bearer no-key',
     toBody: (model, maxTokens, temperature, messages) => ({ model, max_tokens: maxTokens, temperature, messages }),
     fromResp: (d) => d.choices?.[0]?.message?.content?.trim() || null,
   },
@@ -21,14 +37,6 @@ const PROVIDERS = {
     fromResp: (d) => d.content?.[0]?.text?.trim() || null,
     isAnthropic: true,
   },
-  openrouter: {
-    url: 'https://openrouter.ai/api/v1/chat/completions',
-    model: 'meta-llama/llama-3.3-70b-instruct:free',
-    getKey: () => process.env.OPENROUTER_API_KEY,
-    auth: (k) => `Bearer ${k}`,
-    toBody: (model, maxTokens, temperature, messages) => ({ model, max_tokens: maxTokens, temperature, messages }),
-    fromResp: (d) => d.choices?.[0]?.message?.content?.trim() || null,
-  },
 }
 
 const callProvider = async (name, { system, messages, maxTokens, temperature }) => {
@@ -37,7 +45,6 @@ const callProvider = async (name, { system, messages, maxTokens, temperature }) 
   if (!key) throw new Error(`${name}: ключ не задан`)
 
   const headers = p.headers ? p.headers(key) : { 'Content-Type': 'application/json', 'Authorization': p.auth(key) }
-  const msgs = [{ role: 'user', content: messages.map(m => m.content).join('\n') }]
   const body = p.isAnthropic
     ? p.toBody(p.model, maxTokens, temperature, system, messages)
     : p.toBody(p.model, maxTokens, temperature, [{ role: 'system', content: system }, ...messages])
@@ -56,7 +63,7 @@ const callProvider = async (name, { system, messages, maxTokens, temperature }) 
 }
 
 const callClaude = async ({ system, messages, maxTokens = 250, temperature = 0.8 }) => {
-  const chain = ['groq', 'haiku', 'openrouter']
+  const chain = ['groq', 'gemini', 'llm7io', 'haiku']
   for (const name of chain) {
     try {
       return await callProvider(name, { system, messages, maxTokens, temperature })
@@ -83,4 +90,4 @@ const testProvider = async (name) => {
   }
 }
 
-module.exports = { callClaude, testProvider, PROVIDERS, MODEL: 'groq→haiku→openrouter' }
+module.exports = { callClaude, testProvider, PROVIDERS, MODEL: 'groq→gemini→llm7io→haiku' }
