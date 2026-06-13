@@ -1,39 +1,39 @@
 'use strict'
 
-// Claude Haiku 4.5 — основной AI для чата клиентов и водителей
-// Prompt caching: системный промпт кешируется 5 мин → экономия 90% токенов при повторных вызовах
+// xAI Grok — основной AI для чата клиентов и водителей (заменил Claude Haiku)
+// OpenAI-совместимый API, $25/мес кредитов с X Premium
 
-const MODEL = 'claude-haiku-4-5-20251001'
+const MODEL = 'grok-3-mini'
 
 const callClaude = async ({ system, messages, maxTokens = 250, temperature = 0.8 }) => {
-  const apiKey = process.env.ANTHROPIC_API_KEY
-  if (!apiKey) throw new Error('ANTHROPIC_API_KEY не задан')
+  const apiKey = process.env.XAI_API_KEY
+  if (!apiKey) throw new Error('XAI_API_KEY не задан')
 
-  const res = await fetch('https://api.anthropic.com/v1/messages', {
+  const res = await fetch('https://api.x.ai/v1/chat/completions', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      'x-api-key': apiKey,
-      'anthropic-version': '2023-06-01',
-      'anthropic-beta': 'prompt-caching-2024-07-31',
+      'Authorization': `Bearer ${apiKey}`,
     },
     body: JSON.stringify({
       model: MODEL,
       max_tokens: maxTokens,
       temperature,
-      system: [{ type: 'text', text: system, cache_control: { type: 'ephemeral' } }],
-      messages,
+      messages: [
+        { role: 'system', content: system },
+        ...messages,
+      ],
     }),
     signal: AbortSignal.timeout(12000),
   })
 
   if (!res.ok) {
     const err = await res.json().catch(() => ({}))
-    throw new Error(`Claude API ${res.status}: ${err.error?.message || res.statusText}`)
+    throw new Error(`xAI API ${res.status}: ${err.error?.message || res.statusText}`)
   }
 
   const data = await res.json()
-  return data.content?.[0]?.text?.trim() || null
+  return data.choices?.[0]?.message?.content?.trim() || null
 }
 
 module.exports = { callClaude, MODEL }
