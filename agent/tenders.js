@@ -141,7 +141,7 @@ const mcpPost = async (method, params, token) => {
       'Accept': 'application/json, text/event-stream',
     },
     body: JSON.stringify({ jsonrpc: '2.0', method, params: params || {}, id: Date.now() }),
-    signal: AbortSignal.timeout(30000),
+    signal: AbortSignal.timeout(15000),
   })
 
   const ct = r.headers.get('content-type') || ''

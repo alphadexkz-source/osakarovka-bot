@@ -673,11 +673,19 @@ bot.on('callback_query', async (cb) => {
       edit(cid, mid, '🛠 Загружаю инструменты...', BACK)
       try {
         const tools = await tenders.listTools()
-        const lines = tools.map(t => `• *${t.name}*\n  _${t.description||''}_`).join('\n\n')
-        send(cid, `🛠 *Инструменты 10b.kz (${tools.length}):*\n\n${lines||'нет данных'}`,
-          KB([{ text: '◀️ Тендеры', callback_data: 'tender_menu' }])
-        )
-      } catch(e) { send(cid, `❌ ${e.message}`, KB([{ text: '◀️ Тендеры', callback_data: 'tender_menu' }])) }
+        const MAX = 3500
+        let body = `🛠 *Инструменты 10b.kz (${tools.length}):*\n\n`
+        let shown = 0
+        for (const t of tools) {
+          const desc = (t.description || '').slice(0, 100)
+          const line = `• \`${t.name}\`${desc ? ' — ' + desc : ''}\n`
+          if ((body + line).length > MAX) { body += `\n_...и ещё ${tools.length - shown}_`; break }
+          body += line; shown++
+        }
+        edit(cid, mid, body || 'нет данных', KB([{ text: '◀️ Тендеры', callback_data: 'tender_menu' }]))
+      } catch(e) {
+        edit(cid, mid, `❌ ${e.message}`, KB([{ text: '◀️ Тендеры', callback_data: 'tender_menu' }]))
+      }
       return
     }
     if (data === 'tender_search_start') {
